@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'screens/home_screen.dart';
+import 'screens/splash_screen.dart';
 import 'theme.dart';
 
 void main() {
@@ -19,7 +19,7 @@ class ScanForgeApp extends StatelessWidget {
       title: 'ScanForge Pro',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
-      home: const HomeScreen(),
+      home: const SplashScreen(),
     );
   }
 }

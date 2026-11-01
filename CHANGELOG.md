@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 (alpha), 2026-11-01
+- New animated start screen: a point cloud gathers into the ScanForge cube, a scan line
+  reveals it and the scan rings spin up, with a glowing progress bar while the app loads.
+- Start-up background now matches the app (no black flash).
+
 ## 1.0.0 (alpha), 2026-11-01
 - First Android alpha.
 - Guided capture with coverage ring and auto-capture.
