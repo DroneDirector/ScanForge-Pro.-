@@ -38,10 +38,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   bool _asking = false;
+  DateTime _answeredAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<void> _askIfNeeded() async {
     final snap = jobs.snapshot(p.id);
     if (_asking || snap == null || snap.state != JobState.confirm || !mounted) return;
+    // the status is polled, so ignore the question briefly after it was answered
+    if (DateTime.now().difference(_answeredAt).inMilliseconds < 1500) return;
     _asking = true;
     final go = await showDialog<bool>(
       context: context,
@@ -60,6 +63,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
       ),
     );
     if (go != null) jobs.confirm(p.id, go);
+    _answeredAt = DateTime.now();
     _asking = false;
   }
 
@@ -263,7 +267,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
           _ProgressCard(
             snapshot: snap,
             onCancel: () => jobs.cancel(p.id),
-            onAnswer: (go) => jobs.confirm(p.id, go),
+            onAnswer: (go) {
+              _answeredAt = DateTime.now();
+              jobs.confirm(p.id, go);
+            },
           ),
         if (!running) ...[
           if (p.lastError != null)
