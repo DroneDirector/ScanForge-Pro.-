@@ -1,0 +1,7 @@
+third_party/
+build/
+build-engine/
+.dart_tool/
+.idea/
+*.iml
+.DS_Store

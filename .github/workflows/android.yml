@@ -1,0 +1,113 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  engine-test:
+    name: Engine test (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenCV
+        run: sudo apt-get update && sudo apt-get install -y libopencv-dev ninja-build python3-opencv python3-numpy
+      - name: Build engine
+        run: |
+          cmake -S engine -B build-engine -G Ninja -DCMAKE_BUILD_TYPE=Release -DSF_BUILD_TOOLS=ON
+          cmake --build build-engine
+      - name: Synthetic scan test
+        run: |
+          python3 engine/tests/make_synthetic.py /tmp/syn 30
+          mkdir -p /tmp/proj
+          ./build-engine/sf_cli /tmp/proj 0 /tmp/syn/*.jpg | tail -5
+          cat /tmp/proj/log.txt
+          test -s /tmp/proj/scan.stl && test -s /tmp/proj/scan.3mf
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-24.04
+    needs: engine-test
+    env:
+      OPENCV_VERSION: 4.10.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.27.4
+          cache: true
+
+      - name: Download OpenCV Android SDK
+        run: |
+          mkdir -p third_party
+          curl -sSL -o /tmp/opencv.zip https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip
+          unzip -q /tmp/opencv.zip -d third_party
+          ls third_party
+          echo "OPENCV_ANDROID_SDK=$GITHUB_WORKSPACE/third_party/OpenCV-android-sdk" >> $GITHUB_ENV
+
+      - name: Gradle wrapper
+        run: |
+          flutter create --platforms=android --org fo.dronedirector --project-name scanforge_pro /tmp/tmpl > /dev/null
+          cp /tmp/tmpl/android/gradlew /tmp/tmpl/android/gradlew.bat app/android/
+          mkdir -p app/android/gradle/wrapper
+          cp /tmp/tmpl/android/gradle/wrapper/gradle-wrapper.jar app/android/gradle/wrapper/
+
+      - name: Signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > app/android/release.jks
+            printf "storeFile=../release.jks\nstorePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n" "$KEYSTORE_PASSWORD" "$KEYSTORE_PASSWORD" "${KEY_ALIAS:-scanforge}" > app/android/key.properties
+            echo "Using release key from secrets"
+          else
+            printf "storeFile=../alpha-signing.jks\nstorePassword=scanforge-alpha\nkeyPassword=scanforge-alpha\nkeyAlias=scanforge-alpha\n" > app/android/key.properties
+            echo "Using alpha test key"
+          fi
+
+      - name: Build APK
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64
+
+      - name: Name APK
+        id: apk
+        run: |
+          VERSION=$(grep '^version:' app/pubspec.yaml | sed 's/version: *//; s/+.*//')
+          NAME=ScanForgePro-ARM-${VERSION}.apk
+          cp app/build/app/outputs/flutter-apk/app-release.apk "$NAME"
+          ls -la "$NAME"
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.name }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=docs/releases/${GITHUB_REF_NAME}.md
+          if [ -f "$NOTES" ]; then
+            gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.name }}" --title "ScanForge Pro ${{ steps.apk.outputs.version }}" --notes-file "$NOTES"
+          else
+            gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.name }}" --title "ScanForge Pro ${{ steps.apk.outputs.version }}" --generate-notes
+          fi
