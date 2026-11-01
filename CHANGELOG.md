@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 (alpha), 2026-11-01
+- Added Bambu Lab P2S (256 × 256 × 256 mm) and H2S (340 × 320 × 340 mm) to the printer list
+  for export, bed-fit check and 3MF placement.
+
 ## 1.0.2 (alpha), 2026-11-01
 - In-app updates: the app checks for a new version when it starts (can be turned off),
   shows what's new, downloads it with a progress bar and opens the Android installer.

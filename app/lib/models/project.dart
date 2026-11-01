@@ -86,9 +86,11 @@ class Printer {
 
   static const all = [
     Printer('x1', 'Bambu Lab X1 / X1C / X1E', 256, 256, 256),
+    Printer('p2s', 'Bambu Lab P2S', 256, 256, 256),
     Printer('p1', 'Bambu Lab P1S / P1P', 256, 256, 256),
     Printer('a1', 'Bambu Lab A1', 256, 256, 256),
     Printer('a1mini', 'Bambu Lab A1 mini', 180, 180, 180),
+    Printer('h2s', 'Bambu Lab H2S', 340, 320, 340),
     Printer('h2d', 'Bambu Lab H2D', 325, 320, 325),
     Printer('generic', 'Other printer (256 mm)', 256, 256, 256),
   ];

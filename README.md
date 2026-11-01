@@ -2,7 +2,7 @@
 
 Turn photos into printable 3D models. Walk around an object with your phone, and ScanForge Pro
 builds a closed (watertight) 3D model you can view, scale to real size and export as **STL** or
-**3MF**, ready for Bambu Lab printers (Bambu Studio / Bambu Handy).
+**3MF**, ready for Bambu Lab printers (A1, A1 mini, P1, P2S, X1, H2D, H2S; Bambu Studio / Bambu Handy).
 
 | Platform | Status |
 |----------|--------|
