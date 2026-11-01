@@ -92,6 +92,8 @@ jobs:
           NAME=ScanForgePro-ARM-${VERSION}.apk
           cp app/build/app/outputs/flutter-apk/app-release.apk "$NAME"
           ls -la "$NAME"
+          unzip -l "$NAME" | grep -E "lib/.*\.so$"
+          unzip -l "$NAME" | grep -q "lib/arm64-v8a/libscanforge.so"
           echo "name=$NAME" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
