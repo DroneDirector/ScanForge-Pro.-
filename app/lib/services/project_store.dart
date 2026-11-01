@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/project.dart';
+import 'app_settings.dart';
 
 /// Stores scan projects in the app's documents folder.
 class ProjectStore {
@@ -45,6 +46,8 @@ class ProjectStore {
       dir: p.join(r.path, id),
       name: name ?? 'Scan ${_two(now.day)}.${_two(now.month)}.${now.year} ${_two(now.hour)}:${_two(now.minute)}',
       created: now,
+      quality: AppSettings.instance.defaultQuality,
+      printer: AppSettings.instance.defaultPrinter,
     );
     await Directory(proj.photosDir).create(recursive: true);
     await proj.save();

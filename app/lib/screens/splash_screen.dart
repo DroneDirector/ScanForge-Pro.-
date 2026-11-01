@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../services/app_settings.dart';
 import '../services/engine.dart';
 import '../services/project_store.dart';
 import '../theme.dart';
@@ -37,7 +38,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   }
 
   Future<void> _prepare() async {
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    _step(0.1, 'Loading settings');
+    await AppSettings.instance.load();
     _step(0.25, 'Loading 3D engine');
     try {
       engineVersion();

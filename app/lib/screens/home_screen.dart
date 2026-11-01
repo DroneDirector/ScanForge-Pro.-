@@ -4,9 +4,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/project.dart';
+import '../services/app_settings.dart';
 import '../services/project_store.dart';
+import '../services/updater.dart';
+import '../widgets/update_dialog.dart';
 import '../theme.dart';
-import 'about_screen.dart';
+import 'settings_screen.dart';
 import 'capture_screen.dart';
 import 'project_screen.dart';
 
@@ -25,6 +28,18 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _reload();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoUpdateCheck());
+  }
+
+  Future<void> _autoUpdateCheck() async {
+    final st = AppSettings.instance;
+    if (!Updater.supported || !st.autoCheckUpdates) return;
+    final current = await Updater.currentVersion();
+    final rel = await Updater.checkForUpdate();
+    st.lastUpdateCheck = DateTime.now();
+    await st.save();
+    if (rel == null || rel.version == st.skippedVersion || !mounted) return;
+    await showUpdateDialog(context, rel, current);
   }
 
   Future<void> _reload() async {
@@ -125,8 +140,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         actions: [
           IconButton(
-            icon: const Icon(Icons.info_outline_rounded),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AboutScreen())),
+            icon: const Icon(Icons.settings_rounded),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
           ),
         ],
       ),
