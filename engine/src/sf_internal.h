@@ -4,6 +4,7 @@
 #include <opencv2/core.hpp>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -48,9 +49,16 @@ public:
     void log(const std::string& line);
     void setLogFile(const std::string& path);
     void checkCancel() const;            // throws Cancelled
+    // Pauses and asks the user whether to continue; true = continue.
+    bool askToContinue(const std::string& question);
+    void answer(bool proceed);
+    std::atomic<bool> waitingForAnswer{false};
+    std::atomic<bool> userAccepted{false};   // user already chose to continue once
 
 private:
     mutable std::mutex mtx_;
+    std::condition_variable cv_;
+    int answer_ = -1;
     std::string msg_;
     std::string logPath_;
 };

@@ -103,6 +103,40 @@ void Progress::log(const std::string& line) {
     f << ts << "  " << line << "\n";
 }
 
+bool Progress::askToContinue(const std::string& question) {
+    std::string previous = message();
+    {
+        std::unique_lock<std::mutex> lk(mtx_);
+        answer_ = -1;
+        msg_ = question;
+    }
+    log("question: " + question);
+    waitingForAnswer = true;
+    {
+        std::unique_lock<std::mutex> lk(mtx_);
+        cv_.wait(lk, [&] { return answer_ >= 0 || cancelRequested.load(); });
+    }
+    waitingForAnswer = false;
+    checkCancel();
+    bool yes;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        yes = answer_ == 1;
+        msg_ = previous;
+    }
+    log(yes ? "answer: continue" : "answer: stop");
+    if (yes) userAccepted = true;
+    return yes;
+}
+
+void Progress::answer(bool proceed) {
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        answer_ = proceed ? 1 : 0;
+    }
+    cv_.notify_all();
+}
+
 void Progress::checkCancel() const {
     if (cancelRequested.load()) throw Cancelled();
 }

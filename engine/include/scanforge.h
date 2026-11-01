@@ -35,6 +35,9 @@ extern "C" {
 #define SF_STATE_DONE      1
 #define SF_STATE_FAILED    2
 #define SF_STATE_CANCELLED 3
+/* Paused: the photos look insufficient; the message explains why. Answer with
+   sf_job_confirm(job, 1) to continue anyway or sf_job_confirm(job, 0) to stop. */
+#define SF_STATE_CONFIRM   4
 
 /* Pipeline stages (reported by sf_job_stage) */
 #define SF_STAGE_LOADING      0
@@ -70,6 +73,8 @@ SF_API int   sf_job_message(sf_job* job, char* buf, int buf_len);
 /* Number of photos whose camera position was solved (valid after CAMERAS). */
 SF_API int   sf_job_registered(sf_job* job);
 SF_API void  sf_job_cancel(sf_job* job);
+/* Answers a SF_STATE_CONFIRM question: 1 = continue, 0 = stop. */
+SF_API void  sf_job_confirm(sf_job* job, int proceed);
 /* Waits for the thread to finish and frees the job. */
 SF_API void  sf_job_free(sf_job* job);
 

@@ -37,13 +37,46 @@ class _ProjectScreenState extends State<ProjectScreen> {
     super.dispose();
   }
 
+  bool _asking = false;
+
+  Future<void> _askIfNeeded() async {
+    final snap = jobs.snapshot(p.id);
+    if (_asking || snap == null || snap.state != JobState.confirm || !mounted) return;
+    _asking = true;
+    final go = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.amber),
+          SizedBox(width: 10),
+          Expanded(child: Text('Too few overlapping photos')),
+        ]),
+        content: Text(snap.message, style: const TextStyle(height: 1.4)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stop')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
+        ],
+      ),
+    );
+    if (go != null) jobs.confirm(p.id, go);
+    _asking = false;
+  }
+
   void _onJob() {
     if (!mounted) return;
+    if (jobs.snapshot(p.id)?.state == JobState.confirm) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _askIfNeeded());
+    }
     final running = jobs.isRunning(p.id);
     if (_wasRunning && !running) {
       final s = jobs.snapshot(p.id);
       if (s?.state == JobState.done) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _openViewer());
+      } else if (s?.state == JobState.cancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Stopped. Add more photos with Camera or Import, then build again.'),
+        ));
       }
     }
     _wasRunning = running;
@@ -88,14 +121,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   Future<void> _build() async {
     final n = p.photos().length;
-    if (n < 8) {
+    if (n < 3) {
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Not enough photos'),
-          content: Text('This scan has $n photos. At least 8 are needed to build a model, '
-              'and 30-60 give the best results.\n\nWalk all the way around the object, then do a second '
-              'round from higher up.'),
+          content: Text('This scan has $n photo${n == 1 ? '' : 's'}. A 3D model needs at least 3 overlapping '
+              'photos, and 30-60 give the best results.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
           ],
@@ -107,13 +139,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
       final go = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Only a few photos'),
-          content: Text('This scan has $n photos. With so few, the model will probably fail or miss parts '
-              'of the object.\n\nFor good results take 30-60 photos all the way around, plus a round from '
-              'higher up.'),
+          title: const Text('Too few photos'),
+          content: Text('This scan has only $n photos, so there may not be enough overlap. The model may '
+              'fail, miss parts or look like a block.\n\nFor good results take 30-60 photos all the way around, '
+              'plus a round from higher up.\n\nDo you still want to proceed?'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Take more photos')),
-            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Build anyway')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
           ],
         ),
       );
@@ -227,7 +259,12 @@ class _ProjectScreenState extends State<ProjectScreen> {
         Text(_qualityHint(p.quality), style: const TextStyle(color: SfColors.textDim, fontSize: 13, height: 1.35)),
         const SizedBox(height: 24),
         // ---- processing
-        if (running) _ProgressCard(snapshot: snap, onCancel: () => jobs.cancel(p.id)),
+        if (running)
+          _ProgressCard(
+            snapshot: snap,
+            onCancel: () => jobs.cancel(p.id),
+            onAnswer: (go) => jobs.confirm(p.id, go),
+          ),
         if (!running) ...[
           if (p.lastError != null)
             Card(
@@ -240,7 +277,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text(p.lastError!, style: const TextStyle(height: 1.35)),
-                      if (p.lastError!.startsWith('Not enough photos'))
+                      if (p.lastError!.contains('photos'))
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
                           child: OutlinedButton.icon(
@@ -284,11 +321,35 @@ class _ProjectScreenState extends State<ProjectScreen> {
 class _ProgressCard extends StatelessWidget {
   final JobSnapshot? snapshot;
   final VoidCallback onCancel;
-  const _ProgressCard({required this.snapshot, required this.onCancel});
+  final void Function(bool) onAnswer;
+  const _ProgressCard({required this.snapshot, required this.onCancel, required this.onAnswer});
 
   @override
   Widget build(BuildContext context) {
     final s = snapshot;
+    if (s != null && s.state == JobState.confirm) {
+      return Card(
+        color: const Color(0xFF3A3018),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.amber),
+              SizedBox(width: 8),
+              Text('Too few overlapping photos', style: TextStyle(fontWeight: FontWeight.w700)),
+            ]),
+            const SizedBox(height: 8),
+            Text(s.message, style: const TextStyle(height: 1.4)),
+            const SizedBox(height: 10),
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+              TextButton(onPressed: () => onAnswer(false), child: const Text('Stop')),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: () => onAnswer(true), child: const Text('Proceed')),
+            ]),
+          ]),
+        ),
+      );
+    }
     final pct = ((s?.progress ?? 0) * 100).clamp(0, 100).round();
     final stage = s == null ? 'Starting' : stageNames[s.stage.clamp(0, stageNames.length - 1)];
     return Card(

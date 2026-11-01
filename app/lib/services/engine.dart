@@ -25,6 +25,8 @@ typedef _JobVoidC = Void Function(Pointer<Void>);
 typedef _JobVoid = void Function(Pointer<Void>);
 typedef _JobMsgC = Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32);
 typedef _JobMsg = int Function(Pointer<Void>, Pointer<Uint8>, int);
+typedef _JobConfirmC = Void Function(Pointer<Void>, Int32);
+typedef _JobConfirm = void Function(Pointer<Void>, int);
 typedef _RemeshC = Int32 Function(Pointer<Utf8>, Float, Int32);
 typedef _Remesh = int Function(Pointer<Utf8>, double, int);
 typedef _MeshLoadC = Pointer<Void> Function(Pointer<Utf8>);
@@ -46,6 +48,7 @@ final _jobRegistered = _lib.lookupFunction<_JobIntC, _JobInt>('sf_job_registered
 final _jobProgress = _lib.lookupFunction<_JobFloatC, _JobFloat>('sf_job_progress');
 final _jobMessage = _lib.lookupFunction<_JobMsgC, _JobMsg>('sf_job_message');
 final _jobCancel = _lib.lookupFunction<_JobVoidC, _JobVoid>('sf_job_cancel');
+final _jobConfirm = _lib.lookupFunction<_JobConfirmC, _JobConfirm>('sf_job_confirm');
 final _jobFree = _lib.lookupFunction<_JobVoidC, _JobVoid>('sf_job_free');
 final _remesh = _lib.lookupFunction<_RemeshC, _Remesh>('sf_remesh');
 final _meshLoad = _lib.lookupFunction<_MeshLoadC, _MeshLoad>('sf_mesh_load');
@@ -58,7 +61,7 @@ final _version = _lib.lookupFunction<_VersionC, _VersionC>('sf_version');
 
 String engineVersion() => _version().toDartString();
 
-enum JobState { running, done, failed, cancelled }
+enum JobState { running, done, failed, cancelled, confirm }
 
 class Quality {
   static const fast = 0;
@@ -101,7 +104,7 @@ class ReconstructionJob {
   }
 
   bool get _alive => _job != nullptr;
-  JobState get state => _alive ? JobState.values[_jobState(_job).clamp(0, 3)] : JobState.cancelled;
+  JobState get state => _alive ? JobState.values[_jobState(_job).clamp(0, 4)] : JobState.cancelled;
   int get stage => _alive ? _jobStage(_job) : 0;
   int get registered => _alive ? _jobRegistered(_job) : 0;
   double get progress => _alive ? _jobProgress(_job) : 0;
@@ -113,6 +116,11 @@ class ReconstructionJob {
 
   void cancel() {
     if (_alive) _jobCancel(_job);
+  }
+
+  /// Answers a [JobState.confirm] question.
+  void confirm(bool proceed) {
+    if (_alive) _jobConfirm(_job, proceed ? 1 : 0);
   }
 
   /// Waits for the native thread and releases the job.

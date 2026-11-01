@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.6 (alpha), 2026-11-01
+- The photo check no longer blocks building. When too few overlapping photos are detected
+  (before building, after placing the photos, or when the surface is checked), the app warns
+  and asks "Do you still want to proceed?" with Proceed / Stop.
+- Only fewer than 3 photos still stops a build (a model needs at least 3).
+
 ## 1.0.5 (alpha), 2026-11-01
 - Scan check: when there are not enough usable photos, the build stops with a clear
   "Not enough photos" message instead of producing a box-shaped model. The app checks how

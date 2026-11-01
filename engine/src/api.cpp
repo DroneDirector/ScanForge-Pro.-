@@ -88,11 +88,13 @@ static void runPipeline(sf_job* job) {
         p.registered = rec.numRegistered();
         {
             const int reg = rec.numRegistered(), total = int(rec.views.size());
-            if (reg < 6 || reg * 10 < total * 4)
-                throw std::runtime_error(fmt(
-                    "Not enough photos to build the model: only %d of %d photos could be placed around the "
-                    "object. Take more photos (30-60) with lots of overlap, walking all the way around.",
+            if (reg < 6 || reg * 10 < total * 4) {
+                bool go = p.askToContinue(fmt(
+                    "Too few overlapping photos detected: only %d of %d photos could be placed around the "
+                    "object. The model will probably be incomplete. Do you still want to proceed?",
                     reg, total));
+                if (!go) throw Cancelled();
+            }
         }
 
         p.set(SF_STAGE_DEPTH, 0.f, "Measuring depth");
@@ -111,12 +113,13 @@ static void runPipeline(sf_job* job) {
         p.sub(0.7f);
         p.log(fmt("mesh: %.1f%% of the surface measured by photos", measured * 100.0));
         if (mesh.f.empty()) throw std::runtime_error("No surface could be created from the photos.");
-        if (measured < 0.35f)
-            throw std::runtime_error(fmt(
-                "Not enough photos to build the model: only %d%% of the object's surface could be measured. "
-                "Take 30-60 photos all the way around the object, plus a second round from higher up, "
-                "with each photo overlapping the previous one.",
+        if (measured < 0.35f && !p.userAccepted) {
+            bool go = p.askToContinue(fmt(
+                "Too few overlapping photos detected: only %d%% of the object's surface could be measured, "
+                "so the model may look like a block or miss parts. Do you still want to proceed?",
                 int(measured * 100.f + 0.5f)));
+            if (!go) throw Cancelled();
+        }
         if (!saveVolume(joinPath(job->dir, "volume.bin"), vol)) p.log("warning: could not save volume");
         if (!savePLY(joinPath(job->dir, "mesh.ply"), mesh))
             throw std::runtime_error("The mesh could not be saved.");
@@ -162,7 +165,16 @@ SF_API sf_job* sf_job_start(const char* project_dir, const char* image_list, int
     return job;
 }
 
-SF_API int sf_job_state(sf_job* job) { return job ? job->state.load() : SF_STATE_FAILED; }
+SF_API int sf_job_state(sf_job* job) {
+    if (!job) return SF_STATE_FAILED;
+    int st = job->state.load();
+    if (st == SF_STATE_RUNNING && job->progress.waitingForAnswer.load()) return SF_STATE_CONFIRM;
+    return st;
+}
+
+SF_API void sf_job_confirm(sf_job* job, int proceed) {
+    if (job) job->progress.answer(proceed != 0);
+}
 SF_API int sf_job_stage(sf_job* job) { return job ? job->progress.stage.load() : 0; }
 SF_API float sf_job_progress(sf_job* job) { return job ? job->progress.fraction.load() : 0.f; }
 SF_API int sf_job_registered(sf_job* job) { return job ? job->progress.registered.load() : 0; }
@@ -183,6 +195,7 @@ SF_API void sf_job_cancel(sf_job* job) {
 SF_API void sf_job_free(sf_job* job) {
     if (!job) return;
     job->progress.cancelRequested = true;
+    job->progress.answer(false);
     if (job->worker.joinable()) job->worker.join();
     delete job;
 }

@@ -10,6 +10,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <string>
 #include <thread>
@@ -47,8 +48,16 @@ int main(int argc, char** argv) {
     sf_job* job = sf_job_start(dir.c_str(), list.c_str(), quality, 0.0, 0);
     char msg[512];
     std::string last;
-    while (sf_job_state(job) == SF_STATE_RUNNING) {
+    while (sf_job_state(job) == SF_STATE_RUNNING || sf_job_state(job) == SF_STATE_CONFIRM) {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        if (sf_job_state(job) == SF_STATE_CONFIRM) {
+            sf_job_message(job, msg, sizeof(msg));
+            const char* ans = std::getenv("SF_ANSWER");
+            int yes = ans ? std::atoi(ans) : 1;
+            std::printf("  QUESTION: %s -> %s\n", msg, yes ? "continue" : "stop");
+            sf_job_confirm(job, yes);
+            continue;
+        }
         sf_job_message(job, msg, sizeof(msg));
         std::string cur = std::string(msg) + " " + std::to_string(int(sf_job_progress(job) * 100)) + "%";
         if (cur != last) { std::printf("  %s\n", cur.c_str()); last = cur; }

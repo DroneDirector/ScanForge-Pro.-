@@ -41,7 +41,7 @@ class JobManager extends ChangeNotifier {
     _jobs.forEach((id, job) {
       final s = JobSnapshot(job.state, job.stage, job.progress, job.message, job.registered);
       _last[id] = s;
-      if (s.state != JobState.running) finished.add(id);
+      if (s.state != JobState.running && s.state != JobState.confirm) finished.add(id);
     });
     for (final id in finished) {
       final job = _jobs.remove(id)!;
@@ -63,6 +63,11 @@ class JobManager extends ChangeNotifier {
 
   void cancel(String projectId) {
     _jobs[projectId]?.cancel();
+  }
+
+  /// Answers the "too few photos, continue?" question of a running job.
+  void confirm(String projectId, bool proceed) {
+    _jobs[projectId]?.confirm(proceed);
   }
 }
 
