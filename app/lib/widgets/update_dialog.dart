@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/app_settings.dart';
 import '../services/updater.dart';
 import '../theme.dart';
+import 'release_notes_text.dart';
 
 /// Shows "Update available" and handles download + install.
 Future<void> showUpdateDialog(BuildContext context, ReleaseInfo release, String currentVersion) {
@@ -31,11 +32,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   double _progress = 0;
   File? _apk;
   String _error = '';
-
-  String get _notes => widget.release.notes
-      .replaceAll(RegExp(r'^#+\s*', multiLine: true), '')
-      .replaceAll('**', '')
-      .trim();
+  CancelToken? _cancel;
 
   Future<void> _start() async {
     setState(() {
@@ -43,10 +40,13 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       _progress = 0;
     });
     try {
+      _cancel = CancelToken();
       _apk ??= await Updater.download(widget.release, (v) {
         if (mounted) setState(() => _progress = v);
-      });
+      }, cancel: _cancel);
       await _install();
+    } on DownloadCancelled {
+      if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -95,12 +95,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           Text('${widget.current}  →  ${widget.release.version}$mb',
               style: const TextStyle(fontWeight: FontWeight.w700, color: SfColors.accent)),
           const SizedBox(height: 10),
-          if (_phase == _Phase.ask && _notes.isNotEmpty)
+          if (_phase == _Phase.ask && widget.release.notes.trim().isNotEmpty)
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 260),
-              child: SingleChildScrollView(
-                child: Text(_notes, style: const TextStyle(color: SfColors.textDim, fontSize: 13, height: 1.4)),
-              ),
+              child: SingleChildScrollView(child: ReleaseNotesText(widget.release.notes)),
             ),
           if (_phase == _Phase.downloading) ...[
             Text('Downloading… ${(_progress * 100).round()}%'),
@@ -138,7 +136,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           FilledButton(onPressed: _start, child: const Text('Update')),
         ],
         if (_phase == _Phase.downloading)
-          const TextButton(onPressed: null, child: Text('Please wait')),
+          TextButton(onPressed: () => _cancel?.cancel(), child: const Text('Cancel')),
         if (_phase == _Phase.permission) ...[
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Later')),
           FilledButton(onPressed: _install, child: const Text('Install')),

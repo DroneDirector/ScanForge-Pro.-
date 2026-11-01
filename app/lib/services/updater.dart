@@ -12,8 +12,17 @@ class ReleaseInfo {
   final String notes;
   final String apkUrl;
   final int size;
-  ReleaseInfo(this.version, this.title, this.notes, this.apkUrl, this.size);
+  final DateTime? published;
+  ReleaseInfo(this.version, this.title, this.notes, this.apkUrl, this.size, [this.published]);
 }
+
+/// Lets the user stop a running download.
+class CancelToken {
+  bool cancelled = false;
+  void cancel() => cancelled = true;
+}
+
+class DownloadCancelled implements Exception {}
 
 enum InstallResult { started, needsPermission, failed }
 
@@ -48,6 +57,13 @@ class Updater {
 
   /// Newest release with an Android APK, or null.
   static Future<ReleaseInfo?> latest() async {
+    final list = await recent(count: 1);
+    return list == null || list.isEmpty ? null : list.first;
+  }
+
+  /// The newest [count] releases with an Android APK, newest first.
+  /// Returns null when GitHub cannot be reached.
+  static Future<List<ReleaseInfo>?> recent({int count = 3}) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     try {
       final req = await client.getUrl(Uri.parse('https://api.github.com/repos/$_repo/releases?per_page=10'));
@@ -56,7 +72,7 @@ class Updater {
       final res = await req.close();
       if (res.statusCode != 200) return null;
       final list = jsonDecode(await res.transform(utf8.decoder).join()) as List<dynamic>;
-      ReleaseInfo? best;
+      final out = <ReleaseInfo>[];
       for (final r in list.cast<Map<String, dynamic>>()) {
         if (r['draft'] == true) continue;
         final assets = (r['assets'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
@@ -70,10 +86,12 @@ class Updater {
           r['body'] as String? ?? '',
           apk.first['browser_download_url'] as String,
           (apk.first['size'] as num?)?.toInt() ?? 0,
+          DateTime.tryParse(r['published_at'] as String? ?? ''),
         );
-        if (best == null || compare(info.version, best.version) > 0) best = info;
+        out.add(info);
       }
-      return best;
+      out.sort((a, b) => compare(b.version, a.version));
+      return out.take(count).toList();
     } catch (_) {
       return null;
     } finally {
@@ -91,7 +109,7 @@ class Updater {
   }
 
   /// Downloads the APK; [onProgress] gets 0..1.
-  static Future<File> download(ReleaseInfo r, void Function(double) onProgress) async {
+  static Future<File> download(ReleaseInfo r, void Function(double) onProgress, {CancelToken? cancel}) async {
     final cache = await getTemporaryDirectory();
     final dir = Directory(p.join(cache.path, 'updates'));
     if (dir.existsSync()) await dir.delete(recursive: true);
@@ -107,6 +125,11 @@ class Updater {
       final sink = file.openWrite();
       var got = 0;
       await for (final chunk in res) {
+        if (cancel?.cancelled ?? false) {
+          await sink.close();
+          if (file.existsSync()) await file.delete();
+          throw DownloadCancelled();
+        }
         sink.add(chunk);
         got += chunk.length;
         if (total > 0) onProgress(got / total);

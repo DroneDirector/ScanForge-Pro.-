@@ -5,6 +5,7 @@ import '../services/app_settings.dart';
 import '../services/engine.dart';
 import '../services/updater.dart';
 import '../theme.dart';
+import '../widgets/release_notes_text.dart';
 import '../widgets/update_dialog.dart';
 import 'about_screen.dart';
 
@@ -19,6 +20,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final s = AppSettings.instance;
   String _version = '';
   bool _checking = false;
+  List<ReleaseInfo>? _recent;
+  bool _recentLoading = false;
+  bool _recentFailed = false;
 
   @override
   void initState() {
@@ -26,6 +30,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Updater.currentVersion().then((v) {
       if (mounted) setState(() => _version = v);
     });
+    if (Updater.supported) _loadRecent();
+  }
+
+  Future<void> _loadRecent() async {
+    setState(() {
+      _recentLoading = true;
+      _recentFailed = false;
+    });
+    final list = await Updater.recent(count: 3);
+    if (!mounted) return;
+    setState(() {
+      _recentLoading = false;
+      _recent = list;
+      _recentFailed = list == null;
+    });
+  }
+
+  Future<void> _installRelease(ReleaseInfo r) async {
+    final current = await Updater.currentVersion();
+    if (!mounted) return;
+    await showUpdateDialog(context, r, current);
+  }
+
+  Widget _chip(String text, Color color) => Container(
+        margin: const EdgeInsets.only(left: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.6)),
+        ),
+        child: Text(text, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+      );
+
+  String _date(DateTime? d) {
+    if (d == null) return '';
+    final l = d.toLocal();
+    return '${l.day.toString().padLeft(2, '0')}.${l.month.toString().padLeft(2, '0')}.${l.year}';
+  }
+
+  Widget _recentSection() {
+    Widget body;
+    if (_recentLoading) {
+      body = const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+      );
+    } else if (_recentFailed || _recent == null) {
+      body = ListTile(
+        title: const Text('Could not load the update list'),
+        subtitle: const Text('Check your internet connection'),
+        trailing: const Icon(Icons.refresh_rounded),
+        onTap: _loadRecent,
+      );
+    } else if (_recent!.isEmpty) {
+      body = const ListTile(title: Text('No updates published yet'));
+    } else {
+      body = Column(children: [
+        for (var i = 0; i < _recent!.length; i++) _releaseTile(_recent![i], latest: i == 0),
+      ]);
+    }
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        leading: const Icon(Icons.history_rounded, color: SfColors.accent),
+        title: const Text('Latest updates'),
+        subtitle: Text(_recent != null && _recent!.isNotEmpty
+            ? 'Newest: ${_recent!.first.version} · tap to see what changed'
+            : 'The 3 newest versions and what they changed'),
+        childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        children: [body],
+      ),
+    );
+  }
+
+  Widget _releaseTile(ReleaseInfo r, {required bool latest}) {
+    final installed = _version.isNotEmpty && Updater.compare(r.version, _version) == 0;
+    final newer = _version.isNotEmpty && Updater.compare(r.version, _version) > 0;
+    return Card(
+      color: SfColors.surfaceHigh,
+      margin: const EdgeInsets.only(top: 8),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: latest,
+          title: Row(children: [
+            Text('Version ${r.version}', style: const TextStyle(fontWeight: FontWeight.w700)),
+            if (latest) _chip('Latest', SfColors.accent),
+            if (installed) _chip('Installed', SfColors.good),
+          ]),
+          subtitle: Text(_date(r.published), style: const TextStyle(color: SfColors.textDim, fontSize: 12)),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ReleaseNotesText(r.notes.trim().isEmpty ? 'No notes for this version.' : r.notes),
+            if (newer && latest) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: () => _installRelease(r),
+                  icon: const Icon(Icons.system_update_rounded),
+                  label: Text('Update to ${r.version}'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -69,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(children: [
               SwitchListTile(
                 title: const Text('Check for updates automatically'),
-                subtitle: const Text('When the app starts'),
+                subtitle: const Text('When the app starts. You can always choose Later or cancel.'),
                 value: s.autoCheckUpdates,
                 activeColor: SfColors.accent,
                 onChanged: (v) {
@@ -86,6 +200,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : const Icon(Icons.refresh_rounded),
                 onTap: _checking ? null : _checkNow,
               ),
+              const Divider(height: 1),
+              _recentSection(),
               if (s.skippedVersion != null) ...[
                 const Divider(height: 1),
                 ListTile(

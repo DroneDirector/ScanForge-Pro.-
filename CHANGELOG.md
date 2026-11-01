@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4 (alpha), 2026-11-01
+- Settings → Updates: new "Latest updates" drop-down with the 3 newest versions and what
+  each one changed. The newest is marked "Latest" and the installed one "Installed"; an
+  "Update to …" button appears when the latest is newer than the installed version.
+- Update downloads can now be cancelled.
+
 ## 1.0.3 (alpha), 2026-11-01
 - Added Bambu Lab P2S (256 × 256 × 256 mm) and H2S (340 × 320 × 340 mm) to the printer list
   for export, bed-fit check and 3MF placement.
