@@ -34,13 +34,16 @@ static std::string joinPath(const std::string& dir, const char* name) {
 // ---------------------------------------------------------------------------
 // Full pipeline
 // ---------------------------------------------------------------------------
-static void buildMesh(Volume& vol, Mesh& mesh, bool firstTime) {
+// Returns the share of the surface that the photos actually measured.
+static float buildMesh(Volume& vol, Mesh& mesh, bool firstTime) {
     extractSurface(vol, mesh);
     keepMainComponents(mesh, 0.35f);
     taubinSmooth(mesh, vol.smoothIters);
     simplifyMesh(mesh, vol.targetFaces);
     taubinSmooth(mesh, 1);
+    float measured = measuredSurfaceFraction(vol, mesh);
     finalizeToMillimetres(mesh, vol, firstTime);
+    return measured;
 }
 
 static void runPipeline(sf_job* job) {
@@ -83,6 +86,14 @@ static void runPipeline(sf_job* job) {
                 "The camera positions could not be worked out. Take more photos with more overlap "
                 "(each photo should share most of what it sees with the next one).");
         p.registered = rec.numRegistered();
+        {
+            const int reg = rec.numRegistered(), total = int(rec.views.size());
+            if (reg < 6 || reg * 10 < total * 4)
+                throw std::runtime_error(fmt(
+                    "Not enough photos to build the model: only %d of %d photos could be placed around the "
+                    "object. Take more photos (30-60) with lots of overlap, walking all the way around.",
+                    reg, total));
+        }
 
         p.set(SF_STAGE_DEPTH, 0.f, "Measuring depth");
         std::vector<DepthMap> maps;
@@ -96,9 +107,16 @@ static void runPipeline(sf_job* job) {
 
         p.set(SF_STAGE_MESH, 0.f, "Creating the mesh");
         Mesh mesh;
-        buildMesh(vol, mesh, true);
+        float measured = buildMesh(vol, mesh, true);
         p.sub(0.7f);
+        p.log(fmt("mesh: %.1f%% of the surface measured by photos", measured * 100.0));
         if (mesh.f.empty()) throw std::runtime_error("No surface could be created from the photos.");
+        if (measured < 0.35f)
+            throw std::runtime_error(fmt(
+                "Not enough photos to build the model: only %d%% of the object's surface could be measured. "
+                "Take 30-60 photos all the way around the object, plus a second round from higher up, "
+                "with each photo overlapping the previous one.",
+                int(measured * 100.f + 0.5f)));
         if (!saveVolume(joinPath(job->dir, "volume.bin"), vol)) p.log("warning: could not save volume");
         if (!savePLY(joinPath(job->dir, "mesh.ply"), mesh))
             throw std::runtime_error("The mesh could not be saved.");

@@ -311,6 +311,20 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
         if ((sdone & 3) == 0) p.sub(float(sdone) / vol.nz);
     }, s.threads);
     p.checkCancel();
+
+    // how much of the space around the object was actually measured
+    size_t seen = 0, total = 0;
+    for (int z = 0; z < vol.nz; ++z) {
+        float mz = float(vol.origin[2] + z * double(voxel));
+        if (mz < vol.floorZ) continue;
+        for (int y = 0; y < vol.ny; ++y)
+            for (int x = 0; x < vol.nx; ++x) {
+                ++total;
+                if (vol.weight[vol.idx(x, y, z)] > 0) ++seen;
+            }
+    }
+    vol.observed = total ? float(double(seen) / total) : 0.f;
+    p.log(fmt("fusion: %.1f%% of the volume measured", vol.observed * 100.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -416,6 +430,27 @@ void extractSurface(const Volume& vol, Mesh& mesh) {
                     }
                 }
             }
+}
+
+// Share of the mesh surface that lies where photos actually measured a
+// surface (the rest was filled in because nothing was seen there).
+float measuredSurfaceFraction(const Volume& vol, const Mesh& mesh) {
+    if (mesh.v.empty()) return 0.f;
+    size_t ok = 0;
+    for (const auto& p : mesh.v) {
+        cv::Vec3d q = (cv::Vec3d(p[0], p[1], p[2]) - vol.origin) / double(vol.voxel);
+        int x0 = int(std::floor(q[0])), y0 = int(std::floor(q[1])), z0 = int(std::floor(q[2]));
+        bool hit = false;
+        for (int dz = -1; dz <= 2 && !hit; ++dz)
+            for (int dy = -1; dy <= 2 && !hit; ++dy)
+                for (int dx = -1; dx <= 2 && !hit; ++dx) {
+                    int x = x0 + dx, y = y0 + dy, z = z0 + dz;
+                    if (x < 0 || y < 0 || z < 0 || x >= vol.nx || y >= vol.ny || z >= vol.nz) continue;
+                    if (vol.colorW[vol.idx(x, y, z)] > 0) hit = true;
+                }
+        ok += hit ? 1 : 0;
+    }
+    return float(double(ok) / mesh.v.size());
 }
 
 // ---------------------------------------------------------------------------

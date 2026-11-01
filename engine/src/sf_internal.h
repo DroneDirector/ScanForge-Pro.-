@@ -168,12 +168,14 @@ struct Volume {
     double mmPerUnit = 1.0;
     int targetFaces = 150000;
     int smoothIters = 5;
+    float observed = 1.f;          // share of the volume seen by the photos
     cv::Vec3d shiftUnits;         // subtracted before scaling to mm
     size_t idx(int x, int y, int z) const { return (size_t(z) * ny + y) * nx + x; }
 };
 void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
                    const Settings& s, Progress& p, Volume& vol);
 void extractSurface(const Volume& vol, Mesh& mesh);
+float measuredSurfaceFraction(const Volume& vol, const Mesh& mesh);
 bool saveVolume(const std::string& path, const Volume& vol);
 bool loadVolume(const std::string& path, Volume& vol);
 

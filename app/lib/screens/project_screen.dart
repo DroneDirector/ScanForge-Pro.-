@@ -86,13 +86,43 @@ class _ProjectScreenState extends State<ProjectScreen> {
     setState(() {});
   }
 
-  void _build() {
+  Future<void> _build() async {
     final n = p.photos().length;
     if (n < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Take at least 8 photos (30-80 give the best results).')));
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Not enough photos'),
+          content: Text('This scan has $n photos. At least 8 are needed to build a model, '
+              'and 30-60 give the best results.\n\nWalk all the way around the object, then do a second '
+              'round from higher up.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          ],
+        ),
+      );
       return;
     }
+    if (n < 20) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Only a few photos'),
+          content: Text('This scan has $n photos. With so few, the model will probably fail or miss parts '
+              'of the object.\n\nFor good results take 30-60 photos all the way around, plus a round from '
+              'higher up.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Take more photos')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Build anyway')),
+          ],
+        ),
+      );
+      if (go != true) {
+        if (go == false && mounted) await _addFromCamera();
+        return;
+      }
+    }
+    if (!mounted) return;
     if (!jobs.start(p)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start processing.')));
     }
@@ -207,7 +237,20 @@ class _ProjectScreenState extends State<ProjectScreen> {
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Icon(Icons.error_outline_rounded, color: Color(0xFFFF7A7A)),
                   const SizedBox(width: 10),
-                  Expanded(child: Text(p.lastError!, style: const TextStyle(height: 1.35))),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(p.lastError!, style: const TextStyle(height: 1.35)),
+                      if (p.lastError!.startsWith('Not enough photos'))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: _addFromCamera,
+                            icon: const Icon(Icons.camera_alt_rounded),
+                            label: const Text('Take more photos'),
+                          ),
+                        ),
+                    ]),
+                  ),
                 ]),
               ),
             ),

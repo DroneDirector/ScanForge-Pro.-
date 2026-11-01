@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.5 (alpha), 2026-11-01
+- Scan check: when there are not enough usable photos, the build stops with a clear
+  "Not enough photos" message instead of producing a box-shaped model. The app checks how
+  many photos could be placed and how much of the object's surface was actually measured.
+- Warning before building a scan with fewer than 20 photos (Take more photos / Build anyway).
+- "Take more photos" button on the error message.
+
 ## 1.0.4 (alpha), 2026-11-01
 - Settings → Updates: new "Latest updates" drop-down with the 3 newest versions and what
   each one changed. The newest is marked "Latest" and the installed one "Installed"; an
