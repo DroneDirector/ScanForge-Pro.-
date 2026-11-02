@@ -17,7 +17,7 @@ import 'package:scanforge_pro/services/app_settings.dart';
 import 'package:scanforge_pro/services/live_scan.dart';
 import 'package:scanforge_pro/theme.dart';
 
-Future<ByteData> _font(String path) async => ByteData.view((await File(path).readAsBytes()).buffer);
+Future<ByteData> _font(String path) => Future.value(ByteData.view(File(path).readAsBytesSync().buffer));
 
 Future<void> _loadFonts() async {
   final roboto = FontLoader('Roboto');
@@ -50,6 +50,8 @@ Future<void> _shot(WidgetTester tester, Widget home, String name) async {
     Directory('screenshots').createSync(recursive: true);
     File('screenshots/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
   });
+  // ignore: avoid_print
+  print('screenshot written: $name');
 }
 
 LiveScanState _state(Map<String, dynamic> d, String? phase) {
@@ -84,7 +86,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('screenshots', (tester) async {
-    await _loadFonts();
+    await tester.runAsync(_loadFonts);
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
