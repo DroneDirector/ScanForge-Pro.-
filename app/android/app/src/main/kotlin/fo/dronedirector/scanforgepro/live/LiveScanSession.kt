@@ -85,6 +85,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     private var prevTime = 0L
     private var trackingSince = 0L
     @Volatile private var autoSelectDone = false
+    @Volatile private var selectedAt = 0L
     private var speed = 0f
     private var turnRate = 0f
 
@@ -202,11 +203,6 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
                 startSelection(frame, it[0], it[1], camera.pose, cam)
             }
             if (trackingSince == 0L) trackingSince = now
-            // nothing tapped after a moment: pick what is in the middle of the screen
-            if (grid == null && !selecting && !autoSelectDone && now - trackingSince > 2500) {
-                autoSelectDone = true
-                startSelection(frame, viewW / 2f, viewH / 2f, camera.pose, cam)
-            }
             maybeCapture(frame, cam, now)
         }
         if (grid != null && now - lastStats > 500 && !integrating.get()) {
@@ -413,6 +409,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         // 1) AI outline (if available), mapped into the depth image
         var objMask: BooleanArray? = null
         var aiUsed = false
+        var imageMask: ByteArray? = null
+        var imageMaskCam: CamModel? = null
         var aiWidthPx = 0f   // object width in the camera image (pixels of the full image)
         var aiHeightPx = 0f
         val seg = segmenterOrNull()
@@ -435,6 +433,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
                     aiHeightPx = (y1 - y0 + 1f) * cam.height / bmp.height
                 }
                 val icam = cam.scaled(bmp.width, bmp.height)
+                imageMask = m
+                imageMaskCam = icam
                 val mask = BooleanArray(w * h)
                 for (v in 0 until h) for (u in 0 until w) {
                     val d = depthAt(u, v)
@@ -453,7 +453,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         if (objMask != null) {
             var n = 0; var valid = 0
             for (i in 0 until w * h) if (depth.data[i].toInt() != 0) { valid++; if (objMask[i]) n++ }
-            if (valid > 0 && n > 0.35f * valid) { objMask = null; aiUsed = false }
+            if (valid > 0 && n > 0.35f * valid) { objMask = null; aiUsed = false; imageMask = null }
         }
 
         // 2) table height: the most common height among the measured points below the tapped one
@@ -572,7 +572,17 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val g = CoverageGrid(cxw, czw, radius, bottom, top, floorY = table ?: (minY - 0.01f))
         val maskBytes = ByteArray(w * h) { if (inObj[it] || !aiUsed) 1.toByte() else 0.toByte() }
         g.integrate(depth.data, dcam, if (aiUsed) maskBytes else null)
+        val im = imageMask
+        val imc = imageMaskCam
+        if (aiUsed && im != null && imc != null) g.carve(im, imc)
+        val st0 = g.stats()
+        lastStatsObj = st0
+        selectedAt = SystemClock.uptimeMillis()
         grid = g
+        post(mapOf(
+            "type" to "points", "data" to g.surfacePoints(), "captured" to 0.0, "detail" to 0.0,
+            "bins" to g.dirBins.copyOf(), "surface" to st0.surface,
+        ))
         center = floatArrayOf(cxw, (bottom + maxY) / 2, czw)
         kfDirs.clear()
         bestScore = 0f
@@ -638,6 +648,9 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val fwd = floatArrayOf(cam.r[6], cam.r[7], cam.r[8])
         val ctr = center
         val g = grid
+        // only after the object is recognised and its hologram dots are showing
+        if (g == null || ctr == null) { block("select"); return }
+        if ((lastStatsObj?.surface ?: 0) < 20) { block("dots"); return }
         if (!manual) {
             if (ctr != null) {
                 val pr = project(cam, ctr)
@@ -674,7 +687,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         lastPhotoTime = now
         lastKfCenter = c
         lastKfForward = fwd
-        if (ctr != null) {
+        run {
             var dx = c[0] - ctr[0]; var dy = c[1] - ctr[1]; var dz = c[2] - ctr[2]
             val dist = sqrt(dx * dx + dy * dy + dz * dz)
             dx /= dist; dy /= dist; dz /= dist
@@ -789,8 +802,12 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             }
         }
         val ctr = center
-        if (grid == null || ctr == null || cam == null)
-            return if (photoCount.get() > 0) "Taking photos. Tap the object to see the hologram" else "Tap the object you want to scan"
+        if (grid == null || ctr == null || cam == null) return "Tap the object you want to scan"
+        if ((lastStatsObj?.surface ?: 0) < 20) {
+            return if (SystemClock.uptimeMillis() - selectedAt > 5000)
+                "Can't see the object's shape yet: move a bit closer, or tap Reselect"
+            else "Recognising the object… hold the phone still"
+        }
         val pr = project(cam, ctr)
         val margin = if (pr != null) grid!!.radius * cam.fx / pr[2] else 0f
         if (pr == null || pr[0] < -margin || pr[0] > cam.width + margin || pr[1] < -margin || pr[1] > cam.height + margin)

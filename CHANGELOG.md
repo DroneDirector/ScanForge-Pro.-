@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4 (alpha), 2026-11-02
+- Live Scan waits for you: photos are only taken after you have tapped the object and its
+  hologram dots are showing. No automatic picking of the object.
+- The dots appear right after tapping (shaped from the AI outline), so you can see the object
+  was recognised before scanning starts.
+
 ## 1.1.3 (alpha), 2026-11-02
 - Live Scan takes photos much more reliably: a photo every few centimetres or degrees you move
   (smaller steps for small objects), skipped only when the picture is actually blurry. The old

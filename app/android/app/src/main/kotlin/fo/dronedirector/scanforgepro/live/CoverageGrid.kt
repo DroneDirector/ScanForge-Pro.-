@@ -113,7 +113,7 @@ class CoverageGrid(
         if (weight[i] >= 3f && abs(tsdf[i]) < 0.5f) return true
         // small objects: depth is too coarse up close, so the outline shape
         // (space never carved away, next to carved space) is the surface
-        if (outlines >= 3 && weight[i] == 0f && x > 0 && y > 0 && z > 0 && x < nx - 1 && y < ny - 1 && z < nz - 1) {
+        if (outlines >= 1 && weight[i] == 0f && x > 0 && y > 0 && z > 0 && x < nx - 1 && y < ny - 1 && z < nz - 1) {
             return isCarved(idx(x + 1, y, z)) || isCarved(idx(x - 1, y, z)) || isCarved(idx(x, y + 1, z)) ||
                 isCarved(idx(x, y - 1, z)) || isCarved(idx(x, y, z + 1)) || isCarved(idx(x, y, z - 1))
         }
