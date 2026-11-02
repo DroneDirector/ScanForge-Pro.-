@@ -5,6 +5,9 @@
   hologram dots are showing. No automatic picking of the object.
 - The dots appear right after tapping (shaped from the AI outline), so you can see the object
   was recognised before scanning starts.
+- New "AI guess" switch on the Live Scan screen (clearly shown ON or OFF, remembered): with it on,
+  tapping lets the AI guess the object's whole shape; off uses depth only. After selecting, a
+  badge shows which was used ("AI guess" or "Depth only").
 
 ## 1.1.3 (alpha), 2026-11-02
 - Live Scan takes photos much more reliably: a photo every few centimetres or degrees you move

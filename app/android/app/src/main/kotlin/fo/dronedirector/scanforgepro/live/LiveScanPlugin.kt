@@ -63,7 +63,8 @@ class LiveScanPlugin(private val activity: Activity, engine: FlutterEngine) {
                     result.success(status)
                 }
                 "tap" -> {
-                    session?.tap((call.argument<Double>("x") ?: 0.0).toFloat(), (call.argument<Double>("y") ?: 0.0).toFloat())
+                    session?.tap((call.argument<Double>("x") ?: 0.0).toFloat(), (call.argument<Double>("y") ?: 0.0).toFloat(),
+                        call.argument<Boolean>("ai") ?: true)
                     result.success(null)
                 }
                 "shutter" -> { session?.shutter(); result.success(null) }

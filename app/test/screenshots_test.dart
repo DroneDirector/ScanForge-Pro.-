@@ -105,6 +105,11 @@ void main() {
         '1_live_scan_tap_object');
     await _shot(
         tester,
+        LiveScanScreen(
+            project: project, demoBackground: background(), demoState: _state(data, null)..aiGuess = false),
+        '1b_live_scan_ai_guess_off');
+    await _shot(
+        tester,
         LiveScanScreen(project: project, demoBackground: background(), demoState: _state(data, 'selected')),
         '2_live_scan_ai_selected');
     await _shot(

@@ -14,6 +14,7 @@ class LiveScanState extends ChangeNotifier {
   int photos = 0;
   bool selecting = false;
   bool auto = true;
+  bool aiGuess = true; // AI guesses the object's outline when you tap it
 
   // selected object
   bool selected = false;
@@ -109,7 +110,7 @@ class LiveScan {
     return await _ch.invokeMethod<String>('open', {'project': projectDir}) ?? 'error';
   }
 
-  Future<void> tap(double x, double y) => _ch.invokeMethod('tap', {'x': x, 'y': y});
+  Future<void> tap(double x, double y, {bool ai = true}) => _ch.invokeMethod('tap', {'x': x, 'y': y, 'ai': ai});
   Future<void> shutter() => _ch.invokeMethod('shutter');
   Future<void> setAuto(bool on) => _ch.invokeMethod('auto', {'on': on});
   Future<void> reset() => _ch.invokeMethod('reset');

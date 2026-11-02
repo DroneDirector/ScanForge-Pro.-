@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/project.dart';
+import '../services/app_settings.dart';
 import '../services/live_scan.dart';
 import '../theme.dart';
 import '../widgets/hologram_painter.dart';
@@ -43,6 +44,7 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
   void initState() {
     super.initState();
     _state.addListener(_onState);
+    if (!_demo) _state.aiGuess = AppSettings.instance.liveAiGuess;
     if (_demo) {
       _ready = true;
       if (widget.demoState != null) _anim.value = 0.32;
@@ -115,7 +117,7 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
   void _onTapUp(TapUpDetails d) {
     if (_demo || _state.selected || _state.selecting) return;
     final dpr = MediaQuery.of(context).devicePixelRatio;
-    _live.tap(d.localPosition.dx * dpr, d.localPosition.dy * dpr);
+    _live.tap(d.localPosition.dx * dpr, d.localPosition.dy * dpr, ai: _state.aiGuess);
   }
 
   @override
@@ -193,6 +195,10 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
             _topBar(),
             const SizedBox(height: 10),
             _hintPill(),
+            if (!_state.selected) ...[
+              const SizedBox(height: 10),
+              _aiGuessSwitch(),
+            ],
             Expanded(child: _state.selected ? const SizedBox() : _reticle()),
             _bottomPanel(),
           ]),
@@ -239,21 +245,9 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
           onPressed: () => Navigator.pop(context),
         ),
         const Text('Live Scan', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-        if (_state.selected && _state.aiSelection) ...[
+        if (_state.selected) ...[
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: holoCyan.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: holoCyan.withValues(alpha: 0.7)),
-            ),
-            child: const Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.auto_awesome_rounded, size: 13, color: holoCyan),
-              SizedBox(width: 4),
-              Text('AI object', style: TextStyle(color: holoCyan, fontSize: 11, fontWeight: FontWeight.w700)),
-            ]),
-          ),
+          _selectionBadge(_state.aiSelection),
         ],
         const Spacer(),
         _glass(
@@ -267,6 +261,57 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
           ]),
         ),
       ]),
+    );
+  }
+
+  Widget _selectionBadge(bool ai) {
+    final color = ai ? holoCyan : Colors.white70;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.7)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(ai ? Icons.auto_awesome_rounded : Icons.straighten_rounded, size: 13, color: color),
+        const SizedBox(width: 4),
+        Text(ai ? 'AI guess' : 'Depth only',
+            style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+      ]),
+    );
+  }
+
+  /// Switch: let the AI guess the object when you tap it (shown clearly on or off).
+  Widget _aiGuessSwitch() {
+    final on = _state.aiGuess;
+    return GestureDetector(
+      onTap: _demo || _state.selected
+          ? null
+          : () {
+              setState(() => _state.aiGuess = !_state.aiGuess);
+              AppSettings.instance.liveAiGuess = _state.aiGuess;
+              AppSettings.instance.save();
+            },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: on ? holoCyan.withValues(alpha: 0.22) : const Color(0x8C0B0E12),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: on ? holoCyan : Colors.white38, width: 1.5),
+          boxShadow: on ? [BoxShadow(color: holoCyan.withValues(alpha: 0.35), blurRadius: 14)] : null,
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.auto_awesome_rounded, size: 16, color: on ? holoCyan : Colors.white54),
+          const SizedBox(width: 8),
+          Text(on ? 'AI guess: ON' : 'AI guess: OFF',
+              style: TextStyle(color: on ? holoCyan : Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(width: 8),
+          Text(on ? 'tap the object, AI finds its shape' : 'tap the object, depth only',
+              style: const TextStyle(color: Colors.white60, fontSize: 11)),
+        ]),
+      ),
     );
   }
 

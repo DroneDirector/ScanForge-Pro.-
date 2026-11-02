@@ -156,7 +156,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         return mapOf("photos" to savedCount.get(), "rotation" to rotationDeg)
     }
 
-    fun tap(x: Float, y: Float) { pendingTap = floatArrayOf(x, y) }
+    /** Tap on the object; [useAi] = let the AI guess the object's outline. */
+    fun tap(x: Float, y: Float, useAi: Boolean) { pendingTap = floatArrayOf(x, y, if (useAi) 1f else 0f) }
     fun shutter() { captureRequested = true }
     fun resetTarget() {
         autoSelectDone = true
@@ -200,7 +201,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             updateMotion(cam, now)
             pendingTap?.let {
                 pendingTap = null
-                startSelection(frame, it[0], it[1], camera.pose, cam)
+                startSelection(frame, it[0], it[1], camera.pose, cam, it.size < 3 || it[2] > 0.5f)
             }
             if (trackingSince == 0L) trackingSince = now
             maybeCapture(frame, cam, now)
@@ -360,7 +361,11 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     }
 
     // ------------------------------------------------------------------ object selection
-    private fun startSelection(frame: Frame, x: Float, y: Float, pose: com.google.ar.core.Pose, cam: CamModel) {
+    @Volatile private var useAiGuess = true
+
+    private fun startSelection(frame: Frame, x: Float, y: Float, pose: com.google.ar.core.Pose, cam: CamModel,
+                               useAi: Boolean = true) {
+        useAiGuess = useAi
         if (selecting) return
         val depth = copyDepth(frame)
         if (depth == null) {
@@ -413,7 +418,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         var imageMaskCam: CamModel? = null
         var aiWidthPx = 0f   // object width in the camera image (pixels of the full image)
         var aiHeightPx = 0f
-        val seg = segmenterOrNull()
+        val seg = if (useAiGuess) segmenterOrNull() else null
         if (seg != null && yuv != null) {
             val jpeg = toJpeg(yuv)
             val opts = BitmapFactory.Options().apply { inSampleSize = max(1, yuv.w / 480) }
@@ -726,7 +731,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             // AI outline of the object for this photo (helps plain or dark objects)
             var mask: ByteArray? = null
             var mcam: CamModel? = null
-            val seg = segmenterOrNull()
+            val seg = if (useAiGuess) segmenterOrNull() else null
             val pc = if (ctr != null) project(cam, ctr) else null
             if (seg != null && pc != null && g != null) {
                 val opts = BitmapFactory.Options().apply { inSampleSize = max(1, yuv.w / 640) }
