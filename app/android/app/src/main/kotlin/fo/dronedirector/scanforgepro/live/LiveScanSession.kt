@@ -583,7 +583,14 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         if (pts.size >= 6) {
             var sx = 0f; var sz = 0f; minY = Float.MAX_VALUE
             val ys = FloatArray(pts.size)
-            for ((k, p) in pts.withIndex()) { sx += p[0]; sz += p[2]; minY = min(minY, p[1]); ys[k] = p[1] }
+            for (k in 0 until pts.size) {
+                val p = pts[k]
+                val px: Float = p[0]
+                val py: Float = p[1]
+                val pz: Float = p[2]
+                sx += px; sz += pz; minY = min(minY, py)
+                ys[k] = py
+            }
             ys.sort()
             maxY = ys[(ys.size * 0.97f).toInt().coerceAtMost(ys.size - 1)]
             cxw = sx / pts.size
