@@ -178,7 +178,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   void _showLog() {
     final f = File(p.logPath);
-    final text = f.existsSync() ? f.readAsStringSync() : 'No log yet.';
+    final live = File('${p.dir}/live_log.txt');
+    var text = f.existsSync() ? f.readAsStringSync() : 'No 3D build log yet.';
+    if (live.existsSync()) {
+      final lines = live.readAsLinesSync();
+      final last = lines.length > 60 ? lines.sublist(lines.length - 60) : lines;
+      text += '\n\n--- Live Scan ---\n${last.join('\n')}';
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

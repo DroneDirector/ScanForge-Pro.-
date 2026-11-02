@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.3 (alpha), 2026-11-02
+- Live Scan takes photos much more reliably: a photo every few centimetres or degrees you move
+  (smaller steps for small objects), skipped only when the picture is actually blurry. The old
+  rules (steadiness, framing and size estimates all at once) blocked too many photos.
+- Photos start right away, even before the object is tapped; if nothing is tapped the object
+  in the middle of the screen is picked automatically after a moment.
+- When photos are not being taken the hint says why (moving too fast, blurry, object out of view).
+- Live Scan diagnostics are added to the scan's log (log button on the scan page).
+
 ## 1.1.2 (alpha), 2026-11-02
 - Live Scan fixes after the first real test (computer mouse):
   - Tapping the object selects only the object: the table height is measured and the object

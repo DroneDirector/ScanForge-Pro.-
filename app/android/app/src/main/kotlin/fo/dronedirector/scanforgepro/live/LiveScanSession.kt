@@ -83,6 +83,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     private var prevCenter: FloatArray? = null
     private var prevForward: FloatArray? = null
     private var prevTime = 0L
+    private var trackingSince = 0L
+    @Volatile private var autoSelectDone = false
     private var speed = 0f
     private var turnRate = 0f
 
@@ -156,6 +158,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     fun tap(x: Float, y: Float) { pendingTap = floatArrayOf(x, y) }
     fun shutter() { captureRequested = true }
     fun resetTarget() {
+        autoSelectDone = true
         grid = null
         center = null
         kfDirs.clear()
@@ -189,6 +192,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val now = SystemClock.uptimeMillis()
 
         var cam: CamModel? = null
+        diagnostics(now, tracking)
+        if (!tracking) trackingSince = 0L
         if (tracking) {
             cam = camModel(camera.pose, camera.imageIntrinsics)
             updateMotion(cam, now)
@@ -196,7 +201,13 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
                 pendingTap = null
                 startSelection(frame, it[0], it[1], camera.pose, cam)
             }
-            if (grid != null) maybeCapture(frame, cam, now)
+            if (trackingSince == 0L) trackingSince = now
+            // nothing tapped after a moment: pick what is in the middle of the screen
+            if (grid == null && !selecting && !autoSelectDone && now - trackingSince > 2500) {
+                autoSelectDone = true
+                startSelection(frame, viewW / 2f, viewH / 2f, camera.pose, cam)
+            }
+            maybeCapture(frame, cam, now)
         }
         if (grid != null && now - lastStats > 500 && !integrating.get()) {
             lastStats = now
@@ -274,8 +285,6 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         prevForward = fwd
         prevTime = now
     }
-
-    private fun steady() = speed < 0.25f && turnRate < 40f
 
     private fun project(cam: CamModel, p: FloatArray): FloatArray? {
         val r = cam.r; val t = cam.t
@@ -579,36 +588,98 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     }
 
     // ------------------------------------------------------------------ photos
-    private fun maybeCapture(frame: Frame, cam: CamModel, now: Long) {
-        val ctr = center ?: return
-        val g = grid ?: return
-        if (now - lastKfTime < 350) return
-        val manual = captureRequested
-        if (!manual && (!auto || !steady())) return
-        val pr = project(cam, ctr) ?: return
-        if (!manual && (pr[0] < cam.width * 0.05f || pr[0] > cam.width * 0.95f ||
-                    pr[1] < cam.height * 0.05f || pr[1] > cam.height * 0.95f)) return
-        val c = cam.center()
-        var dx = c[0] - ctr[0]; var dy = c[1] - ctr[1]; var dz = c[2] - ctr[2]
-        val dist = sqrt(dx * dx + dy * dy + dz * dz)
-        dx /= dist; dy /= dist; dz /= dist
-        val apparent = g.radius * cam.fx / dist / cam.width
-        if (!manual && (apparent < 0.05f || apparent > 1.4f || dist < 0.1f)) return
-        if (!manual) {
-            var novel = true
-            for (k in kfDirs) {
-                val ang = Math.toDegrees(acos((dx * k[0] + dy * k[1] + dz * k[2]).coerceIn(-1f, 1f).toDouble()))
-                val ratio = max(dist, k[3]) / min(dist, k[3])
-                if (ang < 6.0 && !(ang >= 3.0 && ratio > 1.3f)) { novel = false; break }
+    // ---- capture state
+    private var lastKfCenter: FloatArray? = null
+    private var lastKfForward: FloatArray? = null
+    private val sharpHistory = ArrayDeque<Float>()
+    @Volatile private var blockReason = ""
+    private var lastPhotoTime = 0L
+    private val reasonCounts = HashMap<String, Int>()
+    private var lastDiag = 0L
+
+    private fun block(reason: String) {
+        blockReason = reason
+        reasonCounts[reason] = (reasonCounts[reason] ?: 0) + 1
+    }
+
+    /** Sharpness of the camera image (mean squared Laplacian of the centre). */
+    private fun sharpness(yuv: YuvCopy): Float {
+        val x0 = yuv.w / 4; val x1 = yuv.w * 3 / 4
+        val y0 = yuv.h / 4; val y1 = yuv.h * 3 / 4
+        var sum = 0.0
+        var n = 0
+        var y = y0 + 2
+        while (y < y1 - 2) {
+            var x = x0 + 2
+            val row = y * yuv.yRow
+            while (x < x1 - 2) {
+                val c = yuv.y[row + x].toInt() and 0xFF
+                val l = (yuv.y[row + x - 2].toInt() and 0xFF) + (yuv.y[row + x + 2].toInt() and 0xFF) +
+                    (yuv.y[row - 2 * yuv.yRow + x].toInt() and 0xFF) + (yuv.y[row + 2 * yuv.yRow + x].toInt() and 0xFF) - 4 * c
+                sum += (l * l).toDouble()
+                n++
+                x += 4
             }
-            if (!novel) return
+            y += 4
         }
+        return if (n > 0) (sum / n).toFloat() else 0f
+    }
+
+    /**
+     * Takes a photo every time the phone has moved a few centimetres or turned
+     * a few degrees, as long as the picture is sharp and the object (if chosen)
+     * is in view. Simple rules, so photos keep coming while walking around.
+     */
+    private fun maybeCapture(frame: Frame, cam: CamModel, now: Long) {
+        if (now - lastKfTime < 300) return
+        val manual = captureRequested
+        if (!manual && !auto) return
+        val c = cam.center()
+        val fwd = floatArrayOf(cam.r[6], cam.r[7], cam.r[8])
+        val ctr = center
+        val g = grid
+        if (!manual) {
+            if (ctr != null) {
+                val pr = project(cam, ctr)
+                val margin = 0.3f
+                if (pr == null || pr[0] < -margin * cam.width || pr[0] > (1 + margin) * cam.width ||
+                    pr[1] < -margin * cam.height || pr[1] > (1 + margin) * cam.height) { block("view"); return }
+            }
+            val lc = lastKfCenter
+            val lf = lastKfForward
+            if (lc != null && lf != null) {
+                val dx = c[0] - lc[0]; val dy = c[1] - lc[1]; val dz = c[2] - lc[2]
+                val moved = sqrt(dx * dx + dy * dy + dz * dz)
+                val turned = Math.toDegrees(acos((fwd[0] * lf[0] + fwd[1] * lf[1] + fwd[2] * lf[2]).coerceIn(-1f, 1f).toDouble()))
+                // small objects need smaller steps
+                val step = if (g != null) (g.radius * 0.35f).coerceIn(0.012f, 0.05f) else 0.03f
+                if (moved < step && turned < 6.0) { block("move"); return }
+            }
+            if (speed > 0.5f || turnRate > 60f) { block("fast"); return }
+        }
+        val yuv = copyImage(frame) ?: run { block("image"); return }
+        val sharp = sharpness(yuv)
+        if (!manual && sharpHistory.size >= 4) {
+            val sorted = sharpHistory.sorted()
+            val median = sorted[sorted.size / 2]
+            if (sharp < 0.5f * median) { block("blur"); sharpHistory.addLast(sharp); if (sharpHistory.size > 15) sharpHistory.removeFirst(); return }
+        }
+        sharpHistory.addLast(sharp)
+        if (sharpHistory.size > 15) sharpHistory.removeFirst()
         captureRequested = false
-        val yuv = copyImage(frame) ?: return
+        blockReason = ""
         val depth = copyDepth(frame)
         val dcam = if (depth != null) camModel(frame.camera.pose, frame.camera.textureIntrinsics).scaled(depth.width, depth.height) else null
         lastKfTime = now
-        kfDirs.add(floatArrayOf(dx, dy, dz, dist))
+        lastPhotoTime = now
+        lastKfCenter = c
+        lastKfForward = fwd
+        if (ctr != null) {
+            var dx = c[0] - ctr[0]; var dy = c[1] - ctr[1]; var dz = c[2] - ctr[2]
+            val dist = sqrt(dx * dx + dy * dy + dz * dz)
+            dx /= dist; dy /= dist; dz /= dist
+            kfDirs.add(floatArrayOf(dx, dy, dz, dist))
+        }
         val n = photoCount.incrementAndGet()
         val name = String.format(Locale.US, "LIVE_%04d", n)
         val icam = cam.scaled(yuv.w, yuv.h)
@@ -616,8 +687,19 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         saver.execute { savePhoto(name, yuv, icam, depth, dcam, g, ctr) }
     }
 
+    private fun diagnostics(now: Long, tracking: Boolean) {
+        if (now - lastDiag < 2000) return
+        lastDiag = now
+        try {
+            val line = String.format(Locale.US, "%d tracking=%s photos=%d speed=%.2f turn=%.0f selected=%s blocked=%s\n",
+                now / 1000, tracking, photoCount.get(), speed, turnRate, grid != null, reasonCounts.toString())
+            File(projectDir, "live_log.txt").appendText(line)
+            reasonCounts.clear()
+        } catch (_: Throwable) {}
+    }
+
     private fun savePhoto(name: String, yuv: YuvCopy, cam: CamModel, depth: DepthCopy?, dcam: CamModel?,
-                          g: CoverageGrid, ctr: FloatArray) {
+                          g: CoverageGrid?, ctr: FloatArray?) {
         try {
             val jpeg = toJpeg(yuv)
             FileOutputStream(File(photosDir, "$name.jpg")).use { it.write(jpeg) }
@@ -632,8 +714,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             var mask: ByteArray? = null
             var mcam: CamModel? = null
             val seg = segmenterOrNull()
-            val pc = project(cam, ctr)
-            if (seg != null && pc != null) {
+            val pc = if (ctr != null) project(cam, ctr) else null
+            if (seg != null && pc != null && g != null) {
                 val opts = BitmapFactory.Options().apply { inSampleSize = max(1, yuv.w / 640) }
                 val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)
                 if (bmp != null) {
@@ -658,6 +740,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             // fuse this photo's depth (only inside the object outline when there is one)
             val omask = mask
             val ocam = mcam
+            if (g == null) return
             if (depth != null && dcam != null) {
                 var dmask: ByteArray? = null
                 if (omask != null && ocam != null) {
@@ -696,8 +779,18 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             }
         }
         if (selecting) return "Finding the object…"
+        val since = SystemClock.uptimeMillis() - lastPhotoTime
+        if (auto && since > 2500) {
+            when (blockReason) {
+                "fast" -> return "Move a little slower"
+                "blur" -> return "Hold steady for a moment (photo was blurry)"
+                "view" -> return "Keep the object in view"
+                "image" -> return "Waiting for the camera…"
+            }
+        }
         val ctr = center
-        if (grid == null || ctr == null || cam == null) return "Tap the object you want to scan"
+        if (grid == null || ctr == null || cam == null)
+            return if (photoCount.get() > 0) "Taking photos. Tap the object to see the hologram" else "Tap the object you want to scan"
         val pr = project(cam, ctr)
         val margin = if (pr != null) grid!!.radius * cam.fx / pr[2] else 0f
         if (pr == null || pr[0] < -margin || pr[0] > cam.width + margin || pr[1] < -margin || pr[1] > cam.height + margin)
@@ -708,7 +801,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         if (dist < 0.12f) return "Too close: keep about 15 cm or more away"
         if (apparent < 0.12f) return if (grid!!.radius < 0.06f) "Move closer (about 15–25 cm for small objects)" else "Move closer"
         if (apparent > 1.2f) return "Step back a little"
-        if (!steady()) return "Move slowly and hold steady"
+        if (speed > 0.5f || turnRate > 60f) return "Move a little slower"
         val st = lastStatsObj ?: return "Walk slowly around the object"
         val bins = grid!!.dirBins
         var mid = 0; var high = 0
