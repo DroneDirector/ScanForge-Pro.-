@@ -5,6 +5,7 @@
   --poses  also write poses.txt (camera positions, slightly noisy, like Live Scan)
   --masks  also write masks/ (object outlines, like AI object selection)
   --plain  give the object a plain colour (no texture), which photos alone cannot scan
+  --far    shoot from further away so the object is small in the photos
 
 Used to test the reconstruction engine without real photos. The object is a
 sphere resting on a box (known size), cameras orbit at two heights.
@@ -128,7 +129,7 @@ def main():
     for elev, cnt in rings:
         for i in range(cnt):
             az = 2 * math.pi * i / cnt + elev * 0.01
-            r = 2.4
+            r = 6.0 if '--far' in flags else 2.4
             c = target + r * np.array([math.cos(az) * math.cos(math.radians(elev)),
                                        math.sin(az) * math.cos(math.radians(elev)),
                                        math.sin(math.radians(elev))])

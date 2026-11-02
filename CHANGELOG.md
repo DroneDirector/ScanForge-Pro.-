@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1 (alpha), 2026-11-02
+- Small objects: the 3D engine now zooms in on the object in every photo when measuring depth,
+  so small objects keep their detail (blobs before, clear shapes now).
+- Live Scan: small objects can be selected even when the phone's depth sensing can't see them
+  (sized from the AI outline); the AI outlines of the saved photos shape the hologram, so small
+  objects light up too; photos are taken from as close as 10 cm, with distance hints.
+- Scan with camera: tap the object to focus on it (focus ring).
+- Cleaner flat base: table leftovers around the bottom are removed.
+
 ## 1.1.0 (alpha), 2026-11-02
 - **Live Scan (ARCore)**: move around the object; sharp photos are picked automatically at each
   new angle, together with the exact camera position. Models get their real size in millimetres.

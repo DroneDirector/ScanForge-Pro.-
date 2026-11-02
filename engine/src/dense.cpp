@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <atomic>
 
 namespace sf {
 
@@ -29,20 +30,31 @@ struct DenseImage {
     cv::Matx33d K;
 };
 
-DenseImage loadDense(const Reconstruction& rec, const View& v, int maxDim) {
+// Loads a photo for depth measuring. Only the part around the object (crop,
+// in SfM pixel coordinates) is used, at up to maxDim pixels, so small
+// objects keep their detail.
+DenseImage loadDense(const Reconstruction& rec, const View& v, int maxDim, const cv::Rect2d& crop) {
     DenseImage d;
-    cv::Mat img = cv::imread(v.path, cv::IMREAD_COLOR);
-    if (img.empty()) return d;
-    double sc = double(maxDim) / std::max(img.cols, img.rows);
-    int w = int(std::lround(img.cols * sc)), h = int(std::lround(img.rows * sc));
+    cv::Mat full = cv::imread(v.path, cv::IMREAD_COLOR);
+    if (full.empty()) return d;
+    const double toFull = double(full.cols) / v.width;
+    cv::Rect r(int(std::floor(crop.x * toFull)), int(std::floor(crop.y * toFull)),
+               int(std::ceil(crop.width * toFull)), int(std::ceil(crop.height * toFull)));
+    r &= cv::Rect(0, 0, full.cols, full.rows);
+    if (r.width < 16 || r.height < 16) r = cv::Rect(0, 0, full.cols, full.rows);
+    cv::Mat img = full(r).clone();
+    double sc = std::min(1.0, double(maxDim) / std::max(img.cols, img.rows));
+    int w = std::max(8, int(std::lround(img.cols * sc))), h = std::max(8, int(std::lround(img.rows * sc)));
     cv::resize(img, img, cv::Size(w, h), 0, 0, cv::INTER_AREA);
-    double s = double(w) / v.width;
-    d.K = cv::Matx33d(rec.K.f * s, 0, rec.K.cx * s, 0, rec.K.f * s, rec.K.cy * s, 0, 0, 1);
+    const double sx = double(w) / r.width, sy = double(h) / r.height;
+    const double fFull = rec.K.f * toFull, cxFull = rec.K.cx * toFull, cyFull = rec.K.cy * toFull;
+    d.K = cv::Matx33d(fFull * sx, 0, (cxFull - r.x) * sx, 0, fFull * sy, (cyFull - r.y) * sy, 0, 0, 1);
     cv::Mat mask;
     if (!v.maskPath.empty()) {
         cv::Mat m = cv::imread(v.maskPath, cv::IMREAD_GRAYSCALE);
         if (!m.empty()) {
-            cv::resize(m, mask, cv::Size(w, h), 0, 0, cv::INTER_NEAREST);
+            cv::resize(m, m, full.size(), 0, 0, cv::INTER_NEAREST);
+            cv::resize(m(r), mask, cv::Size(w, h), 0, 0, cv::INTER_NEAREST);
             cv::threshold(mask, mask, 127, 255, cv::THRESH_BINARY);
         }
     }
@@ -77,6 +89,68 @@ double baselineWeight(double ang) {
     if (ang <= 30.0) return 1.0;
     if (ang < 50.0) return (50.0 - ang) / 20.0;
     return 0.0;
+}
+
+// Where the object is: point the cameras look at and a radius around it.
+void objectRegion(const Reconstruction& rec, cv::Vec3d& ctr, double& radius) {
+    cv::Matx33d A = cv::Matx33d::zeros();
+    cv::Vec3d b(0, 0, 0);
+    std::vector<double> dists;
+    for (const auto& v : rec.views) {
+        if (!v.registered) continue;
+        cv::Vec3d d = v.axis();
+        cv::Matx33d P = cv::Matx33d::eye() - d * d.t();
+        A += P;
+        b += P * v.center();
+    }
+    ctr = A.inv(cv::DECOMP_SVD) * b;
+    for (const auto& v : rec.views)
+        if (v.registered) dists.push_back(cv::norm(v.center() - ctr));
+    std::sort(dists.begin(), dists.end());
+    radius = dists.empty() ? 1.0 : 0.3 * dists[dists.size() / 2];
+}
+
+// Part of a photo (SfM pixels) that contains the object, or the whole photo.
+cv::Rect2d objectCrop(const Reconstruction& rec, const View& v, const cv::Vec3d& ctr, double radius) {
+    const cv::Rect2d whole(0, 0, v.width, v.height);
+    if (std::getenv("SF_NO_CROP")) return whole;  // for comparison tests
+    std::vector<double> xs, ys;
+    if (!v.maskPath.empty()) {
+        cv::Mat m = cv::imread(v.maskPath, cv::IMREAD_GRAYSCALE);
+        if (!m.empty()) {
+            cv::resize(m, m, cv::Size(v.width, v.height), 0, 0, cv::INTER_NEAREST);
+            cv::Rect bb = cv::boundingRect(m > 127);
+            if (bb.area() > 0) {
+                xs = {double(bb.x), double(bb.x + bb.width)};
+                ys = {double(bb.y), double(bb.y + bb.height)};
+            }
+        }
+    }
+    if (xs.empty()) {
+        for (size_t k = 0; k < v.kps.size(); ++k) {
+            int tid = v.kpTrack[k];
+            if (tid < 0 || !rec.tracks[tid].valid) continue;
+            if (cv::norm(rec.tracks[tid].X - ctr) > radius) continue;
+            xs.push_back(v.kps[k].pt.x);
+            ys.push_back(v.kps[k].pt.y);
+        }
+        if (xs.size() < 20) return whole;
+        std::sort(xs.begin(), xs.end());
+        std::sort(ys.begin(), ys.end());
+        size_t lo = xs.size() * 3 / 100, hi = xs.size() * 97 / 100;
+        xs = {xs[lo], xs[hi]};
+        ys = {ys[lo], ys[hi]};
+    }
+    double w = xs[1] - xs[0], h = ys[1] - ys[0];
+    double pad = 0.3 * std::max(w, h) + 0.02 * std::max(v.width, v.height);
+    double minSide = 0.25 * std::max(v.width, v.height);
+    double cx = 0.5 * (xs[0] + xs[1]), cy = 0.5 * (ys[0] + ys[1]);
+    w = std::max(w + 2 * pad, minSide);
+    h = std::max(h + 2 * pad, minSide);
+    cv::Rect2d r(cx - w / 2, cy - h / 2, w, h);
+    r &= whole;
+    if (r.area() > 0.6 * whole.area() || r.width < 16 || r.height < 16) return whole;
+    return r;
 }
 
 }  // namespace
@@ -160,9 +234,17 @@ void computeDepthMaps(const Reconstruction& rec, const Settings& s, Progress& p,
     std::vector<int> toLoad;
     for (auto& kv : imgs) toLoad.push_back(kv.first);
     std::vector<DenseImage> loaded(toLoad.size());
+    cv::Vec3d objCenter;
+    double objRadius;
+    objectRegion(rec, objCenter, objRadius);
+    std::atomic<int> cropped{0};
     parallelFor(0, int(toLoad.size()), [&](int k) {
-        loaded[k] = loadDense(rec, rec.views[toLoad[k]], s.depthMaxDim);
+        const View& v = rec.views[toLoad[k]];
+        cv::Rect2d crop = objectCrop(rec, v, objCenter, objRadius);
+        if (crop.width < v.width - 1 || crop.height < v.height - 1) ++cropped;
+        loaded[k] = loadDense(rec, v, s.depthMaxDim, crop);
     }, std::min(4, hardwareThreads()));
+    p.log(fmt("depth: %d of %d photos zoomed in on the object", cropped.load(), int(toLoad.size())));
     for (size_t k = 0; k < toLoad.size(); ++k) imgs[toLoad[k]] = std::move(loaded[k]);
     p.checkCancel();
 

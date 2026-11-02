@@ -111,6 +111,20 @@ void main() {
         LiveScanScreen(project: project, demoBackground: background(), demoState: _state(data, 'progress')),
         '3_live_scan_hologram_progress');
 
+    final dice = jsonDecode(File('test/assets/demo_dice.json').readAsStringSync()) as Map<String, dynamic>;
+    final diceBytes = File('test/assets/demo_dice.jpg').readAsBytesSync();
+    final diceBg = await tester.runAsync(() async {
+      final codec = await ui.instantiateImageCodec(diceBytes);
+      return (await codec.getNextFrame()).image;
+    });
+    await _shot(
+        tester,
+        LiveScanScreen(
+            project: project,
+            demoBackground: RawImage(image: diceBg, fit: BoxFit.cover, width: 360, height: 780),
+            demoState: _state(dice, 'progress')),
+        '6_live_scan_small_object');
+
     await _shot(
       tester,
       Scaffold(

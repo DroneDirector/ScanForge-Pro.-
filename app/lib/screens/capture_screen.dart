@@ -36,6 +36,26 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
   bool _flash = false;
   StreamSubscription<Position>? _gpsSub;
   Position? _position;
+  final _previewKey = GlobalKey();
+  Offset? _focusAt;
+  DateTime _focusTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Tap to focus: small objects need the focus on them, not the background.
+  Future<void> _focusOn(Offset local) async {
+    final cam = _cam;
+    final box = _previewKey.currentContext?.findRenderObject() as RenderBox?;
+    if (cam == null || box == null) return;
+    final p = Offset((local.dx / box.size.width).clamp(0.0, 1.0), (local.dy / box.size.height).clamp(0.0, 1.0));
+    setState(() {
+      _focusAt = local;
+      _focusTime = DateTime.now();
+    });
+    try {
+      await cam.setFocusMode(FocusMode.auto);
+      await cam.setFocusPoint(p);
+      await cam.setExposurePoint(p);
+    } catch (_) {}
+  }
 
   @override
   void initState() {
@@ -163,7 +183,7 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
 
   String get _hint {
     if (_tracker.heading == null) return 'Hold the phone still for a moment';
-    if (_count == 0) return 'Place the object in the middle, then take the first photo';
+    if (_count == 0) return 'Tap the object to focus on it, then take the first photo';
     final covered = _coverage.isCovered(_tracker.heading, _tracker.downAngle);
     if (!_tracker.steady) return 'Hold steady';
     if (_coverage.score > 0.85) return 'Great coverage. Tap Done when ready';
@@ -181,7 +201,29 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
       backgroundColor: Colors.black,
       body: Stack(fit: StackFit.expand, children: [
         if (cam != null && cam.value.isInitialized)
-          Center(child: CameraPreview(cam))
+          Center(
+            child: GestureDetector(
+              onTapUp: (d) => _focusOn(d.localPosition),
+              child: Stack(children: [
+                CameraPreview(cam, key: _previewKey),
+                if (_focusAt != null && DateTime.now().difference(_focusTime).inMilliseconds < 1500)
+                  Positioned(
+                    left: _focusAt!.dx - 34,
+                    top: _focusAt!.dy - 34,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 68,
+                        height: 68,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: SfColors.accent, width: 2),
+                        ),
+                      ),
+                    ),
+                  ),
+              ]),
+            ),
+          )
         else
           Center(
             child: Padding(

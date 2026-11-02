@@ -50,6 +50,10 @@ class CoverageGrid(
     // viewing directions of saved photos: 24 around x 3 heights
     val dirBins = ByteArray(72)
 
+    /** Number of AI outlines carved in; with enough, the outline shape counts as surface. */
+    @Volatile var outlines = 0
+        private set
+
     private fun idx(x: Int, y: Int, z: Int) = (z * ny + y) * nx + x
     private fun wx(x: Int) = cx - radius + x * voxel
     private fun wy(y: Int) = yMin + y * voxel
@@ -99,9 +103,43 @@ class CoverageGrid(
         }
     }
 
+    private fun isCarved(i: Int) = weight[i] >= 2f && tsdf[i] > 0.6f
+
     private fun isSurface(x: Int, y: Int, z: Int): Boolean {
         val i = idx(x, y, z)
-        return weight[i] >= 3f && abs(tsdf[i]) < 0.5f
+        if (weight[i] >= 3f && abs(tsdf[i]) < 0.5f) return true
+        // small objects: depth is too coarse up close, so the outline shape
+        // (space never carved away, next to carved space) is the surface
+        if (outlines >= 4 && weight[i] == 0f && x > 0 && y > 0 && z > 0 && x < nx - 1 && y < ny - 1 && z < nz - 1) {
+            return isCarved(idx(x + 1, y, z)) || isCarved(idx(x - 1, y, z)) || isCarved(idx(x, y + 1, z)) ||
+                isCarved(idx(x, y - 1, z)) || isCarved(idx(x, y, z + 1)) || isCarved(idx(x, y, z - 1))
+        }
+        return false
+    }
+
+    /** Carves away everything outside the object's AI outline in a saved photo. */
+    @Synchronized
+    fun carve(mask: ByteArray, cam: CamModel) {
+        val r = cam.r
+        val t = cam.t
+        for (z in 0 until nz) for (x in 0 until nx) {
+            if (!inCylinder(x, z)) continue
+            val px = wx(x)
+            val pz = wz(z)
+            for (y in 0 until ny) {
+                val py = wy(y)
+                val zc = r[6] * px + r[7] * py + r[8] * pz + t[2]
+                if (zc < 0.03f) continue
+                val u = (cam.fx * (r[0] * px + r[1] * py + r[2] * pz + t[0]) / zc + cam.cx).toInt()
+                val v = (cam.fy * (r[3] * px + r[4] * py + r[5] * pz + t[1]) / zc + cam.cy).toInt()
+                if (u < 0 || v < 0 || u >= cam.width || v >= cam.height) continue
+                if (mask[v * cam.width + u].toInt() != 0) continue
+                val i = idx(x, y, z)
+                tsdf[i] = (tsdf[i] * weight[i] + 1f) / (weight[i] + 1f)
+                weight[i] = min(weight[i] + 1f, 60f)
+            }
+        }
+        outlines++
     }
 
     private fun normal(x: Int, y: Int, z: Int, out: FloatArray): Boolean {
@@ -109,6 +147,12 @@ class CoverageGrid(
         out[0] = tsdf[idx(x + 1, y, z)] - tsdf[idx(x - 1, y, z)]
         out[1] = tsdf[idx(x, y + 1, z)] - tsdf[idx(x, y - 1, z)]
         out[2] = tsdf[idx(x, y, z + 1)] - tsdf[idx(x, y, z - 1)]
+        if (weight[idx(x, y, z)] == 0f) {
+            // outline surface: points towards the carved (empty) neighbours
+            out[0] = (if (isCarved(idx(x + 1, y, z))) 1f else 0f) - (if (isCarved(idx(x - 1, y, z))) 1f else 0f)
+            out[1] = (if (isCarved(idx(x, y + 1, z))) 1f else 0f) - (if (isCarved(idx(x, y - 1, z))) 1f else 0f)
+            out[2] = (if (isCarved(idx(x, y, z + 1))) 1f else 0f) - (if (isCarved(idx(x, y, z - 1))) 1f else 0f)
+        }
         val l = sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2])
         if (l < 1e-6f) return false
         out[0] /= l; out[1] /= l; out[2] /= l

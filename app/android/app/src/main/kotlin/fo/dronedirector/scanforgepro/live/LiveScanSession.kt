@@ -387,16 +387,17 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             }
         }
         val yuv = copyImage(frame)
+        val hitPoint = hits.firstOrNull()?.hitPose?.let { floatArrayOf(it.tx(), it.ty(), it.tz()) }
         selecting = true
         worker.execute {
-            try { select(depth, dcam, texN, imgN, yuv, cam, tableY) } catch (e: Throwable) {
+            try { select(depth, dcam, texN, imgN, yuv, cam, tableY, hitPoint) } catch (e: Throwable) {
                 Log.w(TAG, "selection failed", e)
             } finally { selecting = false }
         }
     }
 
     private fun select(depth: DepthCopy, dcam: CamModel, texN: FloatArray, imgN: FloatArray, yuv: YuvCopy?,
-                       cam: CamModel, tableY: Float?) {
+                       cam: CamModel, tableY: Float?, hitPoint: FloatArray?) {
         val w = depth.width
         val h = depth.height
         val seedX = (texN[0] * w).toInt().coerceIn(0, w - 1)
@@ -413,6 +414,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         // 1) AI outline (if available), mapped into the depth image
         var objMask: BooleanArray? = null
         var aiUsed = false
+        var aiWidthPx = 0f   // object width in the camera image (pixels of the full image)
+        var aiHeightPx = 0f
         val seg = segmenterOrNull()
         if (seg != null && yuv != null) {
             val jpeg = toJpeg(yuv)
@@ -420,6 +423,18 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)
             val m = if (bmp != null) seg.segment(bmp, imgN[0], imgN[1]) else null
             if (m != null && bmp != null) {
+                var x0 = bmp.width; var x1 = -1; var y0 = bmp.height; var y1 = -1
+                for (yy in 0 until bmp.height) for (xx in 0 until bmp.width) {
+                    if (m[yy * bmp.width + xx].toInt() == 0) continue
+                    if (xx < x0) x0 = xx
+                    if (xx > x1) x1 = xx
+                    if (yy < y0) y0 = yy
+                    if (yy > y1) y1 = yy
+                }
+                if (x1 >= x0) {
+                    aiWidthPx = (x1 - x0 + 1f) * cam.width / bmp.width
+                    aiHeightPx = (y1 - y0 + 1f) * cam.height / bmp.height
+                }
                 val icam = cam.scaled(bmp.width, bmp.height)
                 val mask = BooleanArray(w * h)
                 for (v in 0 until h) for (u in 0 until w) {
@@ -474,16 +489,34 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
                 !inObj[i - 1] || !inObj[i + 1] || !inObj[i - w] || !inObj[i + w]
             if (edge) { outline.add(p[0]); outline.add(p[1]); outline.add(p[2]) }
         }
-        if (pts.size < 12) {
+        var cxw: Float
+        var czw: Float
+        var minY: Float
+        var maxY: Float
+        var rVis = 0f
+        if (pts.size >= 6) {
+            var sx = 0f; var sz = 0f; minY = Float.MAX_VALUE; maxY = -Float.MAX_VALUE
+            for (p in pts) { sx += p[0]; sz += p[2]; minY = min(minY, p[1]); maxY = max(maxY, p[1]) }
+            cxw = sx / pts.size
+            czw = sz / pts.size
+            for (p in pts) { val dx = p[0] - cxw; val dz = p[2] - czw; rVis = max(rVis, sqrt(dx * dx + dz * dz)) }
+        } else if (hitPoint != null) {
+            // small object: depth is too coarse; size it from the AI outline (or a small default)
+            val c0 = cam.center()
+            val dist = sqrt((hitPoint[0] - c0[0]) * (hitPoint[0] - c0[0]) + (hitPoint[1] - c0[1]) * (hitPoint[1] - c0[1]) +
+                (hitPoint[2] - c0[2]) * (hitPoint[2] - c0[2]))
+            val wM = if (aiWidthPx > 0) aiWidthPx * dist / cam.fx else 0.04f
+            val hM = if (aiHeightPx > 0) aiHeightPx * dist / cam.fy else 0.05f
+            cxw = hitPoint[0]
+            czw = hitPoint[2]
+            rVis = (wM / 2).coerceIn(0.01f, 0.3f)
+            minY = tableY ?: (hitPoint[1] - hM / 2)
+            maxY = max(hitPoint[1] + hM / 2, minY + hM)
+            outline.clear()
+        } else {
             post(mapOf("type" to "message", "text" to "Couldn't find an object there. Move a little closer and tap the object again."))
             return
         }
-        var sx = 0f; var sz = 0f; var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        for (p in pts) { sx += p[0]; sz += p[2]; minY = min(minY, p[1]); maxY = max(maxY, p[1]) }
-        var cxw = sx / pts.size
-        var czw = sz / pts.size
-        var rVis = 0f
-        for (p in pts) { val dx = p[0] - cxw; val dz = p[2] - czw; rVis = max(rVis, sqrt(dx * dx + dz * dz)) }
         // the camera sees the front half: move the centre back along the view direction
         val c = cam.center()
         var vx = cxw - c[0]; var vz = czw - c[2]
@@ -491,7 +524,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         vx /= vl; vz /= vl
         cxw += vx * rVis * 0.45f
         czw += vz * rVis * 0.45f
-        val radius = (rVis * 1.4f + 0.02f).coerceIn(0.04f, 1.6f)
+        val radius = (rVis * 1.4f + 0.015f).coerceIn(0.025f, 1.6f)
         val bottom = (tableY ?: minY) - 0.01f
         val top = maxY + max(0.03f, 0.25f * (maxY - bottom))
         val g = CoverageGrid(cxw, czw, radius, bottom, top)
@@ -526,7 +559,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val dist = sqrt(dx * dx + dy * dy + dz * dz)
         dx /= dist; dy /= dist; dz /= dist
         val apparent = g.radius * cam.fx / dist / cam.width
-        if (!manual && (apparent < 0.08f || apparent > 1.4f)) return
+        if (!manual && (apparent < 0.05f || apparent > 1.4f || dist < 0.1f)) return
         if (!manual) {
             var novel = true
             for (k in kfDirs) {
@@ -569,6 +602,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts) ?: return
             val mask = seg.segment(bmp, pc[0] / cam.width, pc[1] / cam.height)
             if (mask != null) {
+                g.carve(mask, cam.scaled(bmp.width, bmp.height))
                 val pixels = IntArray(mask.size) { if (mask[it].toInt() != 0) -0x1 else -0x1000000 }
                 val mb = Bitmap.createBitmap(pixels, bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
                 FileOutputStream(File(masksDir, "$name.png")).use { mb.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -598,7 +632,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val c = cam.center()
         val dist = sqrt((c[0] - ctr[0]) * (c[0] - ctr[0]) + (c[1] - ctr[1]) * (c[1] - ctr[1]) + (c[2] - ctr[2]) * (c[2] - ctr[2]))
         val apparent = grid!!.radius * cam.fx / dist / cam.width
-        if (apparent < 0.12f) return "Move closer"
+        if (dist < 0.12f) return "Too close: keep about 15 cm or more away"
+        if (apparent < 0.12f) return if (grid!!.radius < 0.06f) "Move closer (about 15–25 cm for small objects)" else "Move closer"
         if (apparent > 1.2f) return "Step back a little"
         if (!steady()) return "Move slowly and hold steady"
         val st = lastStatsObj ?: return "Walk slowly around the object"

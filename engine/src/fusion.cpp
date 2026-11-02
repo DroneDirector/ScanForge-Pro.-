@@ -245,7 +245,7 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
     vol.targetFaces = s.targetFaces;
     vol.metric = rec.metric;
     vol.smoothIters = s.smoothIters;
-    vol.floorZ = vol.autoFloorZ = float(floorZ > -1e29 ? floorZ + 0.75 * voxel : -1e30);
+    vol.floorZ = vol.autoFloorZ = float(floorZ > -1e29 ? floorZ + 2.0 * voxel : -1e30);
     const size_t N = size_t(vol.nx) * vol.ny * vol.nz;
     vol.tsdf.assign(N, 1.f);
     vol.weight.assign(N, 0.f);
