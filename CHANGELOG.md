@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.0 (alpha), 2026-11-02
+- **Live Scan (ARCore)**: move around the object; sharp photos are picked automatically at each
+  new angle, together with the exact camera position. Models get their real size in millimetres.
+- **AR hologram**: the measured surface of the object glows over the camera view (green =
+  captured, yellow = one photo, red = still needed), with angle rings around the object and a
+  sweeping scan ring. "Captured" and "Detail" percentages and hints on where to go next.
+- **AI object selection**: tap the object; an on-device AI (MediaPipe) outlines it. Every photo
+  gets an object outline, so the table and background are removed and plain or dark objects
+  (that photos alone cannot measure) can now be scanned.
+- **GPS for large scans** (Settings, off by default): uses GPS data in imported photos (e.g.
+  drones) and the phone's location when taking photos to give real size and north-up.
+- Engine: starts from Live Scan camera positions, silhouette carving with object outlines,
+  colours taken from the photos, GPS alignment.
+- Fixed wrapped "Normal" label in the quality selector.
+
 ## 1.0.6 (alpha), 2026-11-01
 - The photo check no longer blocks building. When too few overlapping photos are detected
   (before building, after placing the photos, or when the surface is checked), the app warns

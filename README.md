@@ -11,6 +11,11 @@ builds a closed (watertight) 3D model you can view, scale to real size and expor
 | iPhone / iPad | Planned: same app, Apple Object Capture on LiDAR devices |
 
 ## Features
+- **Live Scan (ARCore)**: automatic photos with exact camera positions, live AR hologram of the
+  captured surface, captured/detail percentages and hints, real size in millimetres.
+- **AI object selection** (MediaPipe, on-device): tap the object; per-photo outlines remove the
+  background and make plain or dark objects scannable.
+- **GPS for large scans** (off by default): real size and north-up from photo GPS / phone location.
 - **Guided capture**: a coverage ring shows which sides and heights you have photographed;
   optional auto-capture takes a photo each time you reach a new angle and hold still.
 - **Import photos** from a camera or drone (JPEG/PNG).

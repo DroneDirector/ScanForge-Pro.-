@@ -273,6 +273,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
         const Text('Quality', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: 10),
         SegmentedButton<int>(
+          showSelectedIcon: false,
           segments: [
             for (var q = 0; q < 4; q++) ButtonSegment(value: q, label: Text(Quality.names[q])),
           ],

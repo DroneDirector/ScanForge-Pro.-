@@ -225,10 +225,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             secondary: const Icon(Icons.location_on_rounded),
             title: const Text('Use GPS location for large scans'),
             subtitle: const Text(
-              'Gives buildings, terrain and drone scans their real size and a north-up orientation. '
-              'Uses the GPS data in imported photos and the phone\'s location when taking photos. '
-              'Only used for building the 3D model and kept on this phone; never added to exported files. '
-              'Not needed for small objects or Live Scan.',
+              'Real size and north-up for buildings, terrain and drone scans. '
+              'Kept on this phone, never exported.',
             ),
             isThreeLine: true,
             value: s.useGps,
@@ -257,6 +255,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Text('Default quality'),
               const SizedBox(height: 10),
               SegmentedButton<int>(
+                showSelectedIcon: false,
                 segments: [for (var q = 0; q < 4; q++) ButtonSegment(value: q, label: Text(Quality.names[q]))],
                 selected: {s.defaultQuality},
                 onSelectionChanged: (v) {

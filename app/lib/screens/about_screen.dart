@@ -19,7 +19,10 @@ class AboutScreen extends StatelessWidget {
       ['Flutter', 'BSD 3-Clause', 'App framework.'],
       ['camera, path_provider, share_plus, sensors_plus, wakelock_plus', 'BSD 3-Clause', 'Flutter plugins.'],
       ['file_picker', 'MIT', 'Choosing photos and saving files.'],
-      ['exif', 'MIT', 'Reading the focal length from photos.'],
+      ['exif', 'MIT', 'Reading the focal length and GPS position from photos.'],
+      ['ARCore SDK', 'Apache License 2.0', 'Live Scan tracking and depth (Google Play Services for AR).'],
+      ['MediaPipe + Magic Touch model', 'Apache License 2.0', 'On-device AI object selection.'],
+      ['geolocator', 'MIT', 'Phone location for large scans (optional).'],
       ['ffi', 'BSD 3-Clause', 'Connecting the app to the 3D engine.'],
     ];
     return Scaffold(
