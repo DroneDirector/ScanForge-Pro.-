@@ -160,6 +160,13 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     }
 
     /** Tap on the object; [useAi] = let the AI guess the object's outline. */
+    private fun makeBox(cx: Float, cz: Float, rVis: Float, bottom: Float, top: Float, vx: Float, vz: Float): FloatArray {
+        val bw = (2f * rVis * 1.15f + 0.01f).coerceIn(0.02f, 1.2f)
+        val bh = ((top - bottom) * 1.05f + 0.005f).coerceIn(0.01f, 1.5f)
+        val yaw = kotlin.math.atan2(vx, vz)
+        return floatArrayOf(cx, bottom, cz, yaw, bw, bw, bh)
+    }
+
     /** Sets the scan box (from the sliders) and rebuilds the live volume around it. */
     fun applyBox(b: FloatArray) {
         box = b.copyOf()
@@ -568,11 +575,11 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
                 outline.add(p[0]); outline.add(p[1]); outline.add(p[2])
             }
         }
-        var cxw: Float
-        var czw: Float
-        var minY: Float
-        var maxY: Float
-        var rVis: Float
+        var cxw = 0f
+        var czw = 0f
+        var minY = 0f
+        var maxY = 0f
+        var rVis = 0f
         if (pts.size >= 6) {
             var sx = 0f; var sz = 0f; minY = Float.MAX_VALUE
             val ys = FloatArray(pts.size)
@@ -619,13 +626,10 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val bottom = (table ?: minY) - 0.008f
         val top = maxY + max(0.015f, 0.2f * (maxY - bottom))
         // scan box fitted to the object, turned to face the camera
-        run {
-            val bw = (2f * rVis * 1.15f + 0.01f).coerceIn(0.02f, 1.2f)
-            val bh = ((maxY - (table ?: minY)) * 1.05f + 0.005f).coerceIn(0.01f, 1.5f)
-            val yaw = kotlin.math.atan2(vx, vz)
-            box = floatArrayOf(cxw, table ?: minY, czw, yaw, bw, bw, bh)
-            post(mapOf("type" to "box", "box" to box!!.copyOf()))
-        }
+        val boxBottom = table ?: minY
+        val newBox = makeBox(cxw, czw, rVis, boxBottom, maxY, vx, vz)
+        box = newBox
+        post(mapOf("type" to "box", "box" to newBox.copyOf()))
         val g = CoverageGrid(cxw, czw, radius, bottom, top, floorY = table ?: (minY - 0.01f))
         val maskBytes = ByteArray(w * h) { if (inObj[it] || !aiUsed) 1.toByte() else 0.toByte() }
         g.integrate(depth.data, dcam, if (aiUsed) maskBytes else null)
@@ -743,7 +747,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         lastPhotoTime = now
         lastKfCenter = c
         lastKfForward = fwd
-        run {
+        if (true) {
             var dx = c[0] - ctr[0]; var dy = c[1] - ctr[1]; var dz = c[2] - ctr[2]
             val dist = sqrt(dx * dx + dy * dy + dz * dz)
             dx /= dist; dy /= dist; dz /= dist
