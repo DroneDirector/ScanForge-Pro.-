@@ -66,6 +66,10 @@ android {
         }
     }
 
+    androidResources {
+        noCompress += "tflite"
+    }
+
     buildTypes {
         release {
             signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
@@ -81,4 +85,8 @@ flutter {
 
 dependencies {
     implementation "androidx.core:core-ktx:1.13.1"
+    // ARCore (Live Scan): camera tracking and depth
+    implementation "com.google.ar:core:1.45.0"
+    // MediaPipe (Apache 2.0): AI object selection
+    implementation "com.google.mediapipe:tasks-vision:0.10.14"
 }

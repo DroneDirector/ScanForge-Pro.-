@@ -15,6 +15,10 @@ class ScanProject {
   double exportScale;
   String? lastError;
   String printer;
+  /// Made with Live Scan (camera positions known, real size).
+  bool liveScan;
+  /// Rotation (degrees) to show Live Scan photos upright.
+  int photoRotation;
 
   ScanProject({
     required this.id,
@@ -26,12 +30,20 @@ class ScanProject {
     this.exportScale = 1,
     this.lastError,
     this.printer = 'x1',
+    this.liveScan = false,
+    this.photoRotation = 0,
   });
 
   String get photosDir => p.join(dir, 'photos');
   String get meshPath => p.join(dir, 'mesh.ply');
   String get logPath => p.join(dir, 'log.txt');
   String get jsonPath => p.join(dir, 'project.json');
+  String get gpsPath => p.join(dir, 'gps.txt');
+  bool get hasCameraPositions => File(p.join(dir, 'poses.txt')).existsSync();
+
+  /// Quarter turns needed to show a photo upright.
+  int quarterTurnsFor(String path) =>
+      p.basename(path).startsWith('LIVE_') ? (photoRotation ~/ 90) % 4 : 0;
   bool get hasModel => File(meshPath).existsSync();
 
   List<File> photos() {
@@ -55,6 +67,8 @@ class ScanProject {
         'exportScale': exportScale,
         'lastError': lastError,
         'printer': printer,
+        'liveScan': liveScan,
+        'photoRotation': photoRotation,
       };
 
   static ScanProject fromJson(String dir, Map<String, dynamic> j) => ScanProject(
@@ -67,6 +81,8 @@ class ScanProject {
         exportScale: (j['exportScale'] as num?)?.toDouble() ?? 1,
         lastError: j['lastError'] as String?,
         printer: j['printer'] as String? ?? 'x1',
+        liveScan: j['liveScan'] as bool? ?? false,
+        photoRotation: (j['photoRotation'] as num?)?.toInt() ?? 0,
       );
 
   Future<void> save() async {

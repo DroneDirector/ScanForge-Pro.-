@@ -9,6 +9,7 @@ import '../services/job_manager.dart';
 import '../services/project_store.dart';
 import '../theme.dart';
 import 'capture_screen.dart';
+import 'live_scan_screen.dart';
 import 'viewer_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
@@ -109,6 +110,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   Future<void> _addFromCamera() async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => CaptureScreen(project: p)));
+    setState(() {});
+  }
+
+  Future<void> _addFromLiveScan() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => LiveScanScreen(project: p)));
     setState(() {});
   }
 
@@ -214,11 +220,27 @@ class _ProjectScreenState extends State<ProjectScreen> {
               trailing: FilledButton(onPressed: _openViewer, child: const Text('Open')),
             ),
           ),
+        if (p.hasCameraPositions)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 4),
+            child: Row(children: const [
+              Icon(Icons.view_in_ar_rounded, size: 16, color: SfColors.good),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text('Live Scan · camera positions and real size are known',
+                    style: TextStyle(color: SfColors.good, fontSize: 13)),
+              ),
+            ]),
+          ),
         const SizedBox(height: 8),
         // ---- photos
-        Row(children: [
-          Text('Photos (${photos.length})', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-          const Spacer(),
+        Text('Photos (${photos.length})', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        Wrap(spacing: 4, children: [
+          if (p.liveScan)
+            TextButton.icon(
+                onPressed: running ? null : _addFromLiveScan,
+                icon: const Icon(Icons.view_in_ar_rounded),
+                label: const Text('Live')),
           TextButton.icon(
               onPressed: running ? null : _addFromCamera,
               icon: const Icon(Icons.camera_alt_rounded),
@@ -239,7 +261,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   separatorBuilder: (_, __) => const SizedBox(width: 6),
                   itemBuilder: (ctx, i) => ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: Image.file(photos[i], width: 96, height: 96, fit: BoxFit.cover, cacheWidth: 200),
+                    child: RotatedBox(
+                      quarterTurns: p.quarterTurnsFor(photos[i].path),
+                      child: Image.file(photos[i], width: 96, height: 96, fit: BoxFit.cover, cacheWidth: 200),
+                    ),
                   ),
                 ),
         ),

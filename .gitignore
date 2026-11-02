@@ -5,3 +5,4 @@ build-engine/
 .idea/
 *.iml
 .DS_Store
+app/android/app/src/main/assets/magic_touch.tflite

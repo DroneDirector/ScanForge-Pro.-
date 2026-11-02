@@ -8,11 +8,20 @@ import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import fo.dronedirector.scanforgepro.live.LiveScanPlugin
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    private var live: LiveScanPlugin? = null
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (live?.onPermissionResult(requestCode, grantResults) == true) return
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        live = LiveScanPlugin(this, flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "scanforge/update").setMethodCallHandler { call, result ->
             when (call.method) {
                 "appVersion" -> {

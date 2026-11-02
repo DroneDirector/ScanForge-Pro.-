@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:path/path.dart' as pth;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/project.dart';
+import '../services/app_settings.dart';
 import '../services/orientation_tracker.dart';
 import '../services/project_store.dart';
 import '../theme.dart';
@@ -31,6 +34,8 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
   int _count = 0;
   DateTime _lastShot = DateTime.fromMillisecondsSinceEpoch(0);
   bool _flash = false;
+  StreamSubscription<Position>? _gpsSub;
+  Position? _position;
 
   @override
   void initState() {
@@ -41,6 +46,7 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
     _count = widget.project.photos().length;
     _tracker.start();
     _initCamera();
+    if (AppSettings.instance.useGps) _startGps();
     _ui = Timer.periodic(const Duration(milliseconds: 100), (_) => _tick());
   }
 
@@ -71,6 +77,17 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
     } catch (e) {
       setState(() => _error = 'Camera error: $e');
     }
+  }
+
+  Future<void> _startGps() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+      _gpsSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0),
+      ).listen((p) => _position = p, onError: (_) {});
+    } catch (_) {}
   }
 
   @override
@@ -107,6 +124,11 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
       final dst = ProjectStore.instance.nextPhotoPath(widget.project);
       await file.saveTo(dst);
       _coverage.add(heading, down);
+      final pos = _position;
+      if (pos != null && pos.accuracy < 30) {
+        await ProjectStore.instance
+            .addGps(widget.project, pth.basename(dst), pos.latitude, pos.longitude, pos.altitude);
+      }
       _count++;
       _lastShot = DateTime.now();
       if (_count == 1 && widget.project.focal35 <= 0) {
@@ -132,6 +154,7 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.removeObserver(this);
     _ui?.cancel();
     _tracker.stop();
+    _gpsSub?.cancel();
     _cam?.dispose();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([]);

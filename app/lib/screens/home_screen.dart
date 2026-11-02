@@ -11,6 +11,7 @@ import '../widgets/update_dialog.dart';
 import '../theme.dart';
 import 'settings_screen.dart';
 import 'capture_screen.dart';
+import 'live_scan_screen.dart';
 import 'project_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -75,38 +76,38 @@ class _HomeScreenState extends State<HomeScreen> {
     _reload();
   }
 
+  Future<void> _newLiveScan() async {
+    final proj = await ProjectStore.instance.create();
+    if (!mounted) return;
+    await Navigator.of(context).push<int>(MaterialPageRoute(builder: (_) => LiveScanScreen(project: proj)));
+    if (!mounted) return;
+    if (proj.photos().isEmpty) {
+      await ProjectStore.instance.delete(proj);
+      _reload();
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ProjectScreen(project: proj)));
+    _reload();
+  }
+
   void _showNewSheet() {
     showModalBottomSheet(
       context: context,
       backgroundColor: SfColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('New scan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 14),
-            _SheetOption(
-              icon: Icons.camera_alt_rounded,
-              title: 'Scan with camera',
-              subtitle: 'Guided capture: walk around the object',
-              onTap: () {
-                Navigator.pop(ctx);
-                _newCapture();
-              },
-            ),
-            const SizedBox(height: 10),
-            _SheetOption(
-              icon: Icons.photo_library_rounded,
-              title: 'Import photos',
-              subtitle: 'Use existing photos, e.g. from a drone or camera',
-              onTap: () {
-                Navigator.pop(ctx);
-                _newImport();
-              },
-            ),
-          ]),
-        ),
+      builder: (ctx) => NewScanSheet(
+        onLiveScan: () {
+          Navigator.pop(ctx);
+          _newLiveScan();
+        },
+        onCamera: () {
+          Navigator.pop(ctx);
+          _newCapture();
+        },
+        onImport: () {
+          Navigator.pop(ctx);
+          _newImport();
+        },
       ),
     );
   }
@@ -189,11 +190,53 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// The "New scan" choices (Live Scan, camera, import).
+class NewScanSheet extends StatelessWidget {
+  final VoidCallback onLiveScan, onCamera, onImport;
+  const NewScanSheet({super.key, required this.onLiveScan, required this.onCamera, required this.onImport});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('New scan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 14),
+          _SheetOption(
+            icon: Icons.view_in_ar_rounded,
+            title: 'Live Scan',
+            subtitle: 'Move around the object. Photos are taken automatically, a hologram shows what is captured, '
+                'and the model gets its real size',
+            badge: 'NEW',
+            onTap: onLiveScan,
+          ),
+          const SizedBox(height: 10),
+          _SheetOption(
+            icon: Icons.camera_alt_rounded,
+            title: 'Scan with camera',
+            subtitle: 'Guided photos: walk around the object',
+            onTap: onCamera,
+          ),
+          const SizedBox(height: 10),
+          _SheetOption(
+            icon: Icons.photo_library_rounded,
+            title: 'Import photos',
+            subtitle: 'Use existing photos, e.g. from a drone or camera',
+            onTap: onImport,
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 class _SheetOption extends StatelessWidget {
   final IconData icon;
   final String title, subtitle;
+  final String? badge;
   final VoidCallback onTap;
-  const _SheetOption({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  const _SheetOption({required this.icon, required this.title, required this.subtitle, required this.onTap, this.badge});
 
   @override
   Widget build(BuildContext context) {
@@ -215,7 +258,18 @@ class _SheetOption extends StatelessWidget {
             const SizedBox(width: 14),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                Row(children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                  if (badge != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: SfColors.accent, borderRadius: BorderRadius.circular(6)),
+                      child: Text(badge!,
+                          style: const TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.w800)),
+                    ),
+                  ],
+                ]),
                 const SizedBox(height: 2),
                 Text(subtitle, style: const TextStyle(color: SfColors.textDim, fontSize: 13)),
               ]),
@@ -278,7 +332,10 @@ class _ProjectCard extends StatelessWidget {
                     color: SfColors.surfaceHigh,
                     child: const Icon(Icons.image_outlined, color: SfColors.textDim, size: 40),
                   )
-                : Image.file(File(thumb.path), fit: BoxFit.cover, cacheWidth: 400),
+                : RotatedBox(
+                    quarterTurns: project.quarterTurnsFor(thumb.path),
+                    child: Image.file(File(thumb.path), fit: BoxFit.cover, cacheWidth: 400),
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),

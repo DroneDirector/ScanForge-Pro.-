@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:geolocator/geolocator.dart';
+
 import '../models/project.dart';
 import '../services/app_settings.dart';
 import '../services/engine.dart';
@@ -217,6 +219,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
           ),
         ],
+        _header('LOCATION'),
+        Card(
+          child: SwitchListTile(
+            secondary: const Icon(Icons.location_on_rounded),
+            title: const Text('Use GPS location for large scans'),
+            subtitle: const Text(
+              'Gives buildings, terrain and drone scans their real size and a north-up orientation. '
+              'Uses the GPS data in imported photos and the phone\'s location when taking photos. '
+              'Only used for building the 3D model and kept on this phone; never added to exported files. '
+              'Not needed for small objects or Live Scan.',
+            ),
+            isThreeLine: true,
+            value: s.useGps,
+            activeColor: SfColors.accent,
+            onChanged: (v) async {
+              if (v) {
+                try {
+                  var perm = await Geolocator.checkPermission();
+                  if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+                  if (perm == LocationPermission.deniedForever && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Location access is blocked. Photo GPS data from imports is still used.')));
+                  }
+                } catch (_) {}
+              }
+              s.useGps = v;
+              _save();
+            },
+          ),
+        ),
         _header('NEW SCANS'),
         Card(
           child: Padding(
