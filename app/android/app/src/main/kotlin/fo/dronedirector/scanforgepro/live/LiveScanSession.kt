@@ -595,7 +595,15 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             maxY = ys[(ys.size * 0.97f).toInt().coerceAtMost(ys.size - 1)]
             cxw = sx / pts.size
             czw = sz / pts.size
-            val rs = FloatArray(pts.size) { val dx = pts[it][0] - cxw; val dz = pts[it][2] - czw; sqrt(dx * dx + dz * dz) }
+            val rs = FloatArray(pts.size)
+            for (k in 0 until pts.size) {
+                val q: FloatArray = pts[k]
+                val qx: Float = q[0]
+                val qz: Float = q[2]
+                val dx = qx - cxw
+                val dz = qz - czw
+                rs[k] = sqrt(dx * dx + dz * dz)
+            }
             rs.sort()
             rVis = rs[(rs.size * 0.95f).toInt().coerceAtMost(rs.size - 1)]
         } else if (hitPoint != null) {
