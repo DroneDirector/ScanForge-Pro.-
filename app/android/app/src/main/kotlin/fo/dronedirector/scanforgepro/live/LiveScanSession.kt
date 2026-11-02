@@ -540,7 +540,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         while (k < outline.size) { ol.add(outline[k]); ol.add(outline[k + 1]); ol.add(outline[k + 2]); k += 3 * step }
         post(mapOf(
             "type" to "selected", "center" to floatArrayOf(cxw, bottom, czw), "radius" to radius.toDouble(),
-            "bottom" to bottom.toDouble(), "top" to top.toDouble(), "outline" to ol.toFloatArray(), "ai" to aiUsed,
+            "bottom" to bottom.toDouble(), "top" to top.toDouble(), "objectTop" to maxY.toDouble(), "outline" to ol.toFloatArray(), "ai" to aiUsed,
         ))
     }
 

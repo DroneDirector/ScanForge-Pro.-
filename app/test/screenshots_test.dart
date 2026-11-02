@@ -72,6 +72,7 @@ LiveScanState _state(Map<String, dynamic> d, String? phase) {
     ..radius = (d['radius'] as num).toDouble()
     ..bottom = (d['bottom'] as num).toDouble()
     ..top = (d['top'] as num).toDouble()
+    ..objectTop = (d['objectTop'] as num?)?.toDouble()
     ..outline = phase == 'selected' ? f32(d['outline'] as List) : Float32List(0)
     ..points = f32(ph['points'] as List)
     ..bins = Uint8List.fromList((ph['bins'] as List).cast<int>())

@@ -90,7 +90,7 @@ def render():
 
 def hologram():
     pts = []
-    step = 0.0011
+    step = 0.002
     cam_az = base.AZ
     for axis, sign in [(0, 1), (0, -1), (2, 1), (2, -1), (1, 1)]:
         g = np.arange(-S / 2 + step / 2, S / 2, step)
@@ -132,7 +132,7 @@ def main():
     for k in range(0, 5):
         bins[48 + (seg + k) % 24] = 1
     data = {'view': V, 'proj': P, 'center': [0.0, -0.01, 0.0], 'radius': radius, 'bottom': -0.01,
-            'top': S + 0.03, 'outline': [],
+            'top': S + 0.03, 'objectTop': S, 'outline': [],
             'progress': {'points': hologram(), 'bins': bins, 'captured': 0.58, 'detail': 0.83, 'photos': 19,
                          'hint': 'Fill in the red spots'}}
     with open(os.path.join(out, 'demo_dice.json'), 'w') as fp:

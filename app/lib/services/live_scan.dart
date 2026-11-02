@@ -22,6 +22,7 @@ class LiveScanState extends ChangeNotifier {
   double radius = 0;
   double bottom = 0;
   double top = 0;
+  double? objectTop; // top of the object itself (without padding)
   Float32List outline = Float32List(0); // x,y,z triples
 
   // hologram
@@ -62,6 +63,7 @@ class LiveScanState extends ChangeNotifier {
           radius = (e['radius'] as num).toDouble();
           bottom = (e['bottom'] as num).toDouble();
           top = (e['top'] as num).toDouble();
+          objectTop = (e['objectTop'] as num?)?.toDouble();
           outline = e['outline'] as Float32List;
         }
       case 'photo':

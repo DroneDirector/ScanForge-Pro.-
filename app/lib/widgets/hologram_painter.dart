@@ -133,9 +133,11 @@ class HologramPainter extends CustomPainter {
     final c = s.baseCenter;
     if (c == null) return;
     final cx = c[0], cz = c[2];
-    final r = s.radius;
-    final h = s.top - s.bottom;
-    final heights = [s.bottom + 0.02 * h, s.bottom + 0.5 * h, s.top];
+    // rings hug the object itself, not the padded scan region
+    final r = math.max(s.radius * 0.6, (s.radius - 0.015) / 1.4 * 1.3);
+    final objTop = s.objectTop ?? s.top;
+    final h = objTop - s.bottom;
+    final heights = [s.bottom + 0.02 * h, s.bottom + 0.5 * h, objTop + 0.15 * h];
     for (var band = 0; band < 3; band++) {
       final y = heights[band];
       final rr = r * (band == 2 ? 0.8 : 1.0);

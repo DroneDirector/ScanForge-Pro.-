@@ -222,7 +222,7 @@ def main():
     data = {
         'view': V, 'proj': P,
         'center': [0.0, -0.01, 0.0], 'radius': radius, 'bottom': -0.01, 'top': H_CAN + 0.035,
-        'outline': outline(),
+        'objectTop': H_CAN, 'outline': outline(),
         'progress': {'points': hologram(True), 'bins': bins(True), 'captured': 0.64, 'detail': 0.71,
                      'photos': 23, 'hint': 'Now raise the phone and look down at the top'},
         'selected': {'points': hologram(False), 'bins': bins(False), 'captured': 0.04, 'detail': 0.0,
