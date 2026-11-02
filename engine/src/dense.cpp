@@ -115,7 +115,21 @@ cv::Rect2d objectCrop(const Reconstruction& rec, const View& v, const cv::Vec3d&
     const cv::Rect2d whole(0, 0, v.width, v.height);
     if (std::getenv("SF_NO_CROP")) return whole;  // for comparison tests
     std::vector<double> xs, ys;
-    if (!v.maskPath.empty()) {
+    if (rec.hasBox && rec.metric) {
+        // Live Scan box: crop to its projection
+        std::vector<double> bx, by;
+        for (const auto& X : rec.boxCorners()) {
+            cv::Vec2d uv;
+            if (!projectPoint(rec.K, v, X, uv)) return whole;
+            bx.push_back(uv[0]);
+            by.push_back(uv[1]);
+        }
+        auto [x0, x1] = std::minmax_element(bx.begin(), bx.end());
+        auto [y0, y1] = std::minmax_element(by.begin(), by.end());
+        xs = {*x0, *x1};
+        ys = {*y0, *y1};
+    }
+    if (xs.empty() && !v.maskPath.empty()) {
         cv::Mat m = cv::imread(v.maskPath, cv::IMREAD_GRAYSCALE);
         if (!m.empty()) {
             cv::resize(m, m, cv::Size(v.width, v.height), 0, 0, cv::INTER_NEAREST);

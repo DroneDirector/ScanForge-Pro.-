@@ -28,8 +28,52 @@ static void rootSift(cv::Mat& d) {
     }
 }
 
+// Turntable: the background stands still while the object and the turntable
+// top move. Pixels that differ from the per-pixel median of all photos are the
+// moving part; only features there may be used.
+static std::vector<cv::Mat> movingMasks(const Reconstruction& rec, int threads) {
+    const int n = int(rec.views.size());
+    std::vector<cv::Mat> small(n);
+    parallelFor(0, n, [&](int i) {
+        cv::Mat g = cv::imread(rec.views[i].path, cv::IMREAD_GRAYSCALE);
+        if (g.empty()) return;
+        double sc = 400.0 / std::max(g.cols, g.rows);
+        cv::resize(g, small[i], cv::Size(), sc, sc, cv::INTER_AREA);
+    }, threads);
+    cv::Size sz;
+    for (auto& m : small) if (!m.empty()) { sz = m.size(); break; }
+    std::vector<cv::Mat> out(n);
+    if (sz.area() == 0) return out;
+    cv::Mat median(sz, CV_8U);
+    std::vector<uchar> vals;
+    for (int y = 0; y < sz.height; ++y)
+        for (int x = 0; x < sz.width; ++x) {
+            vals.clear();
+            for (auto& m : small)
+                if (!m.empty() && m.size() == sz) vals.push_back(m.at<uchar>(y, x));
+            std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
+            median.at<uchar>(y, x) = vals.empty() ? 0 : vals[vals.size() / 2];
+        }
+    for (int i = 0; i < n; ++i) {
+        if (small[i].empty() || small[i].size() != sz) continue;
+        cv::Mat diff, mm;
+        cv::absdiff(small[i], median, diff);
+        cv::GaussianBlur(diff, diff, cv::Size(5, 5), 0);
+        mm = diff > 14;
+        cv::morphologyEx(mm, mm, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15, 15)));
+        cv::dilate(mm, mm, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(9, 9)));
+        out[i] = mm;
+    }
+    return out;
+}
+
 void detectFeatures(Reconstruction& rec, const Settings& s, Progress& p) {
     const int n = int(rec.views.size());
+    std::vector<cv::Mat> moving;
+    if (s.turntableMasks) {
+        moving = movingMasks(rec, std::min(4, hardwareThreads()));
+        p.log("features: turntable, using only the turning part of the photos");
+    }
     std::atomic<int> done{0};
     std::vector<std::string> errors(n);
     int workers = std::min(hardwareThreads(), 4);
@@ -50,7 +94,22 @@ void detectFeatures(Reconstruction& rec, const Settings& s, Progress& p) {
         v.width = img.cols;
         v.height = img.rows;
         auto sift = cv::SIFT::create(s.maxFeatures, 3, 0.03, 10.0, 1.6);
-        sift->detectAndCompute(img, cv::noArray(), v.kps, v.desc);
+        cv::Mat featMask;
+        if (s.turntableMasks) {
+            // turntable: the background stands still, so only the turning part may be used
+            if (i < int(moving.size()) && !moving[i].empty())
+                cv::resize(moving[i], featMask, img.size(), 0, 0, cv::INTER_NEAREST);
+            if (!v.maskPath.empty()) {
+                cv::Mat m = cv::imread(v.maskPath, cv::IMREAD_GRAYSCALE);
+                if (!m.empty()) {
+                    cv::resize(m, m, img.size(), 0, 0, cv::INTER_NEAREST);
+                    m = m > 127;
+                    featMask = featMask.empty() ? m : (featMask | m);
+                }
+            }
+        }
+        if (featMask.empty()) sift->detectAndCompute(img, cv::noArray(), v.kps, v.desc);
+        else sift->detectAndCompute(img, featMask, v.kps, v.desc);
         if (!v.desc.empty()) rootSift(v.desc);
         v.kpTrack.assign(v.kps.size(), -1);
         int d = ++done;

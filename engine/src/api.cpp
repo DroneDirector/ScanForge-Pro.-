@@ -82,7 +82,9 @@ static void runPipeline(sf_job* job) {
 
         loadPriors(rec, job->dir, p);
         p.set(SF_STAGE_FEATURES, 0.f, "Finding details in the photos");
-        detectFeatures(rec, s, p);
+        Settings fs = s;
+        fs.turntableMasks = rec.turntable;
+        detectFeatures(rec, fs, p);
         applyPriorIntrinsics(rec);
 
         p.set(SF_STAGE_MATCHING, 0.f, "Matching photos");

@@ -92,6 +92,19 @@ void loadPriors(Reconstruction& rec, const std::string& dir, Progress& p) {
             ++gps;
         }
     }
+    {
+        std::ifstream f(dir + sep + "box.txt");
+        double c[3], yaw, w, d, h;
+        if (f >> c[0] >> c[1] >> c[2] >> yaw >> w >> d >> h && w > 0 && d > 0 && h > 0) {
+            rec.hasBox = true;
+            rec.boxCenter = cv::Vec3d(c[0], c[1], c[2]);
+            rec.boxYaw = yaw;
+            rec.boxW = w; rec.boxD = d; rec.boxH = h;
+            p.log(fmt("priors: scan box %.0f x %.0f x %.0f mm", w * 1000, d * 1000, h * 1000));
+        }
+    }
+    rec.turntable = fileExists(dir + sep + "turntable.txt");
+    if (rec.turntable) p.log("priors: turntable scan");
     for (auto& v : rec.views) {
         std::string m = dir + sep + "masks/" + stem(baseName(v.path)) + ".png";
         if (fileExists(m)) {
@@ -101,6 +114,22 @@ void loadPriors(Reconstruction& rec, const std::string& dir, Progress& p) {
     }
     if (poses || gps || masks)
         p.log(fmt("priors: %d camera positions, %d GPS positions, %d object masks", poses, gps, masks));
+}
+
+// Box corners in world coordinates (Live Scan world: y is up).
+std::vector<cv::Vec3d> Reconstruction::boxCorners() const {
+    std::vector<cv::Vec3d> out;
+    const double cy = std::cos(boxYaw), sy = std::sin(boxYaw);
+    // ground axes and up axis (Live Scan: y up; other worlds: z up)
+    const bool yUp = std::abs(up[1]) > 0.9 || !upKnown;
+    const cv::Vec3d ex = cv::Vec3d(1, 0, 0);
+    const cv::Vec3d ez = yUp ? cv::Vec3d(0, 0, 1) : cv::Vec3d(0, 1, 0);
+    const cv::Vec3d eu = yUp ? cv::Vec3d(0, 1, 0) : cv::Vec3d(0, 0, 1);
+    for (int k = 0; k < 8; ++k) {
+        double lx = (k & 1 ? 0.5 : -0.5) * boxW, lz = (k & 2 ? 0.5 : -0.5) * boxD, lh = (k & 4 ? boxH : 0.0);
+        out.push_back(boxCenter + ex * (cy * lx + sy * lz) + ez * (-sy * lx + cy * lz) + eu * lh);
+    }
+    return out;
 }
 
 void applyPriorIntrinsics(Reconstruction& rec) {
