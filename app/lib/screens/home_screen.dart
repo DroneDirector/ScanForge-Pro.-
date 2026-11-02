@@ -12,6 +12,7 @@ import '../theme.dart';
 import 'settings_screen.dart';
 import 'capture_screen.dart';
 import 'live_scan_screen.dart';
+import 'turntable_screen.dart';
 import 'project_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -90,6 +91,20 @@ class _HomeScreenState extends State<HomeScreen> {
     _reload();
   }
 
+  Future<void> _newTurntable() async {
+    final proj = await ProjectStore.instance.create();
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => TurntableScreen(project: proj)));
+    if (!mounted) return;
+    if (proj.photos().isEmpty) {
+      await ProjectStore.instance.delete(proj);
+      _reload();
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ProjectScreen(project: proj)));
+    _reload();
+  }
+
   void _showNewSheet() {
     showModalBottomSheet(
       context: context,
@@ -99,6 +114,10 @@ class _HomeScreenState extends State<HomeScreen> {
         onLiveScan: () {
           Navigator.pop(ctx);
           _newLiveScan();
+        },
+        onTurntable: () {
+          Navigator.pop(ctx);
+          _newTurntable();
         },
         onCamera: () {
           Navigator.pop(ctx);
@@ -192,8 +211,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
 /// The "New scan" choices (Live Scan, camera, import).
 class NewScanSheet extends StatelessWidget {
-  final VoidCallback onLiveScan, onCamera, onImport;
-  const NewScanSheet({super.key, required this.onLiveScan, required this.onCamera, required this.onImport});
+  final VoidCallback onLiveScan, onTurntable, onCamera, onImport;
+  const NewScanSheet(
+      {super.key, required this.onLiveScan, required this.onTurntable, required this.onCamera, required this.onImport});
 
   @override
   Widget build(BuildContext context) {
@@ -206,10 +226,18 @@ class NewScanSheet extends StatelessWidget {
           _SheetOption(
             icon: Icons.view_in_ar_rounded,
             title: 'Live Scan',
-            subtitle: 'Move around the object. Photos are taken automatically, a hologram shows what is captured, '
-                'and the model gets its real size',
-            badge: 'NEW',
+            subtitle: 'AR: put a box around the object and walk around it. The dome shows what is captured; '
+                'real size',
+            badge: 'AR',
             onTap: onLiveScan,
+          ),
+          const SizedBox(height: 10),
+          _SheetOption(
+            icon: Icons.rotate_right_rounded,
+            title: 'Turntable',
+            subtitle: 'Phone on a stand, the object turns on a turntable or lazy Susan. Best for small objects',
+            badge: 'NEW',
+            onTap: onTurntable,
           ),
           const SizedBox(height: 10),
           _SheetOption(

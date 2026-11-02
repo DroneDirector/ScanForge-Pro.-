@@ -85,6 +85,9 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     private var prevTime = 0L
     private var trackingSince = 0L
     @Volatile private var autoSelectDone = false
+    /** Scan box: bottom centre x, y, z, yaw (rad), width, depth, height (metres). */
+    @Volatile private var box: FloatArray? = null
+    @Volatile private var scanning = false
     @Volatile private var selectedAt = 0L
     private var speed = 0f
     private var turnRate = 0f
@@ -157,10 +160,35 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     }
 
     /** Tap on the object; [useAi] = let the AI guess the object's outline. */
+    /** Sets the scan box (from the sliders) and rebuilds the live volume around it. */
+    fun applyBox(b: FloatArray) {
+        box = b.copyOf()
+        val r = (0.5f * sqrt(b[4] * b[4] + b[5] * b[5]) * 1.15f).coerceIn(0.02f, 1.0f)
+        val g = CoverageGrid(b[0], b[2], r, b[1] - 0.008f, b[1] + b[6] * 1.15f + 0.01f, floorY = b[1])
+        val old = grid
+        if (old != null) for (i in 0 until 72) g.dirBins[i] = old.dirBins[i]
+        grid = g
+        center = floatArrayOf(b[0], b[1] + b[6] / 2, b[2])
+        if (selectedAt == 0L) selectedAt = SystemClock.uptimeMillis()
+        post(mapOf("type" to "box", "box" to b.copyOf()))
+    }
+
+    fun startScan() {
+        val b = box ?: return
+        scanning = true
+        try {
+            File(projectDir, "box.txt").writeText(String.format(Locale.US, "%f %f %f %f %f %f %f\n",
+                b[0], b[1], b[2], b[3], b[4], b[5], b[6]))
+        } catch (_: Throwable) {}
+        post(mapOf("type" to "scanning", "on" to true))
+    }
+
     fun tap(x: Float, y: Float, useAi: Boolean) { pendingTap = floatArrayOf(x, y, if (useAi) 1f else 0f) }
     fun shutter() { captureRequested = true }
     fun resetTarget() {
         autoSelectDone = true
+        box = null
+        scanning = false
         grid = null
         center = null
         kfDirs.clear()
@@ -201,7 +229,18 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             updateMotion(cam, now)
             pendingTap?.let {
                 pendingTap = null
-                startSelection(frame, it[0], it[1], camera.pose, cam, it.size < 3 || it[2] > 0.5f)
+                val b = box
+                if (b != null && !scanning) {
+                    // move the box to where the table/object was tapped
+                    val hit = frame.hitTest(it[0], it[1]).firstOrNull()
+                    if (hit != null) {
+                        val nb = b.copyOf()
+                        nb[0] = hit.hitPose.tx(); nb[2] = hit.hitPose.tz()
+                        applyBox(nb)
+                    }
+                } else if (b == null) {
+                    startSelection(frame, it[0], it[1], camera.pose, cam, it.size < 3 || it[2] > 0.5f)
+                }
             }
             if (trackingSince == 0L) trackingSince = now
             maybeCapture(frame, cam, now)
@@ -236,8 +275,8 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
 
     /** Captured share; never goes down while scanning the same object. */
     private fun capturedScore(st: CoverageGrid.Stats): Float {
-        val surface = if (st.surface > 0) st.captured.toFloat() / st.surface else 0f
-        val now = (0.55f * st.directions + 0.45f * surface).coerceIn(0f, 1f)
+        // dome coverage: depends only on where photos were taken, so it is steady
+        val now = st.directions.coerceIn(0f, 1f)
         if (now > bestScore) bestScore = now
         return bestScore
     }
@@ -559,7 +598,14 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             maxY = max(hitPoint[1] + hM / 2, minY + hM)
             outline.clear()
         } else {
-            post(mapOf("type" to "message", "text" to "Couldn't find an object there. Move a little closer and tap the object again."))
+            val hp = hitPoint
+            if (hp != null) {
+                // nothing measurable: start with a 10 cm box the user can adjust
+                applyBox(floatArrayOf(hp[0], table ?: hp[1], hp[2], 0f, 0.1f, 0.1f, 0.1f))
+                post(mapOf("type" to "message", "text" to "Adjust the box so it fits the object"))
+            } else {
+                post(mapOf("type" to "message", "text" to "Couldn't find the table there. Move the phone a little and tap again."))
+            }
             return
         }
         // the camera sees the front half: move the centre back along the view direction
@@ -572,6 +618,14 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val radius = (rVis * 1.25f + 0.01f).coerceIn(0.02f, 0.6f)
         val bottom = (table ?: minY) - 0.008f
         val top = maxY + max(0.015f, 0.2f * (maxY - bottom))
+        // scan box fitted to the object, turned to face the camera
+        run {
+            val bw = (2f * rVis * 1.15f + 0.01f).coerceIn(0.02f, 1.2f)
+            val bh = ((maxY - (table ?: minY)) * 1.05f + 0.005f).coerceIn(0.01f, 1.5f)
+            val yaw = kotlin.math.atan2(vx, vz)
+            box = floatArrayOf(cxw, table ?: minY, czw, yaw, bw, bw, bh)
+            post(mapOf("type" to "box", "box" to box!!.copyOf()))
+        }
         val g = CoverageGrid(cxw, czw, radius, bottom, top, floorY = table ?: (minY - 0.01f))
         val maskBytes = ByteArray(w * h) { if (inObj[it] || !aiUsed) 1.toByte() else 0.toByte() }
         g.integrate(depth.data, dcam, if (aiUsed) maskBytes else null)
@@ -652,8 +706,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val ctr = center
         val g = grid
         // only after the object is recognised and its hologram dots are showing
-        if (g == null || ctr == null) { block("select"); return }
-        if ((lastStatsObj?.surface ?: 0) < 20) { block("dots"); return }
+        if (g == null || ctr == null || !scanning) { block("select"); return }
         if (!manual) {
             if (ctr != null) {
                 val pr = project(cam, ctr)
@@ -798,12 +851,9 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             }
         }
         val ctr = center
-        if (grid == null || ctr == null || cam == null) return "Tap the object you want to scan"
-        if ((lastStatsObj?.surface ?: 0) < 20) {
-            return if (SystemClock.uptimeMillis() - selectedAt > 5000)
-                "Can't see the object's shape yet: move a bit closer, or tap Reselect"
-            else "Recognising the object… hold the phone still"
-        }
+        if (box == null || grid == null || ctr == null || cam == null) return "Tap the object to place the scan box"
+        if (!scanning) return "Fit the box around the object, then tap Start"
+
         val pr = project(cam, ctr)
         val margin = if (pr != null) grid!!.radius * cam.fx / pr[2] else 0f
         if (pr == null || pr[0] < -margin || pr[0] > cam.width + margin || pr[1] < -margin || pr[1] > cam.height + margin)

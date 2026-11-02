@@ -226,6 +226,18 @@ class _ProjectScreenState extends State<ProjectScreen> {
               trailing: FilledButton(onPressed: _openViewer, child: const Text('Open')),
             ),
           ),
+        if (File('${p.dir}/turntable.txt').existsSync())
+          const Padding(
+            padding: EdgeInsets.only(top: 4, bottom: 4),
+            child: Row(children: [
+              Icon(Icons.rotate_right_rounded, size: 16, color: SfColors.good),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text('Turntable scan · background removed by AI',
+                    style: TextStyle(color: SfColors.good, fontSize: 13)),
+              ),
+            ]),
+          ),
         if (p.hasCameraPositions)
           Padding(
             padding: const EdgeInsets.only(top: 4, bottom: 4),

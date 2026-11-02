@@ -13,6 +13,7 @@ import 'package:scanforge_pro/models/project.dart';
 import 'package:scanforge_pro/screens/home_screen.dart';
 import 'package:scanforge_pro/screens/live_scan_screen.dart';
 import 'package:scanforge_pro/screens/settings_screen.dart';
+import 'package:scanforge_pro/screens/turntable_screen.dart';
 import 'package:scanforge_pro/services/app_settings.dart';
 import 'package:scanforge_pro/services/live_scan.dart';
 import 'package:scanforge_pro/theme.dart';
@@ -117,6 +118,26 @@ void main() {
         LiveScanScreen(project: project, demoBackground: background(), demoState: _state(data, 'progress')),
         '3_live_scan_hologram_progress');
 
+    // box and dome
+    final boxAdjust = _state(data, 'selected')
+      ..box = [0.0, 0.0, 0.0, 0.3, 0.074, 0.074, 0.128]
+      ..points = Float32List(0)
+      ..outline = Float32List(0)
+      ..hint = 'Fit the box around the object, then tap Start';
+    await _shot(tester, LiveScanScreen(project: project, demoBackground: background(), demoState: boxAdjust),
+        '1c_live_scan_box_adjust');
+    final boxScan = _state(data, 'progress')
+      ..box = [0.0, 0.0, 0.0, 0.3, 0.074, 0.074, 0.128]
+      ..scanning = true
+      ..hint = 'Now raise the phone and look down at the top';
+    await _shot(tester, LiveScanScreen(project: project, demoBackground: background(), demoState: boxScan),
+        '1d_live_scan_box_dome');
+    await _shot(
+        tester,
+        TurntableScreen(
+            project: project, demoBackground: background(), demo: const TurntableDemo(2, 21, 36, true)),
+        '7_turntable');
+
     final dice = jsonDecode(File('test/assets/demo_dice.json').readAsStringSync()) as Map<String, dynamic>;
     final diceBytes = File('test/assets/demo_dice.jpg').readAsBytesSync();
     final diceBg = await tester.runAsync(() async {
@@ -142,7 +163,7 @@ void main() {
               color: SfColors.surface,
               borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
             ),
-            child: NewScanSheet(onLiveScan: () {}, onCamera: () {}, onImport: () {}),
+            child: NewScanSheet(onLiveScan: () {}, onTurntable: () {}, onCamera: () {}, onImport: () {}),
           ),
         ]),
       ),

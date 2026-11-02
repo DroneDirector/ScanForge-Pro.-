@@ -15,6 +15,10 @@ class LiveScanState extends ChangeNotifier {
   bool selecting = false;
   bool auto = true;
   bool aiGuess = true; // AI guesses the object's outline when you tap it
+  /// Scan box: bottom centre x, y, z, yaw (rad), width, depth, height (metres).
+  List<double>? box;
+  bool scanning = false;
+  bool showDots = false; // optional surface dots on top of the dome
 
   // selected object
   bool selected = false;
@@ -52,6 +56,8 @@ class LiveScanState extends ChangeNotifier {
       case 'selected':
         if (e['cleared'] == true) {
           selected = false;
+          box = null;
+          scanning = false;
           points = Float32List(0);
           outline = Float32List(0);
           captured = 0;
@@ -67,6 +73,11 @@ class LiveScanState extends ChangeNotifier {
           objectTop = (e['objectTop'] as num?)?.toDouble();
           outline = e['outline'] as Float32List;
         }
+      case 'box':
+        box = (e['box'] as Float32List).map((v) => v.toDouble()).toList();
+        selected = true;
+      case 'scanning':
+        scanning = e['on'] == true;
       case 'photo':
         photos = e['photos'] as int;
         lastPhoto = DateTime.now();
@@ -100,6 +111,20 @@ class LiveScan {
   static Future<String> install() async => await _ch.invokeMethod<String>('install') ?? 'failed';
   static Future<bool> cameraPermission() async => await _ch.invokeMethod<bool>('cameraPermission') ?? false;
 
+  /// Turntable: lets the AI separate the object from the background in all photos.
+  static Future<int> segmentPhotos(String projectDir, void Function(int done, int total) onProgress) async {
+    final sub = _events.receiveBroadcastStream().listen((e) {
+      if (e is Map && e['type'] == 'segment') onProgress(e['done'] as int, e['total'] as int);
+    });
+    try {
+      return await _ch.invokeMethod<int>('segmentPhotos', {'project': projectDir}) ?? 0;
+    } catch (_) {
+      return 0;
+    } finally {
+      await sub.cancel();
+    }
+  }
+
   StreamSubscription? _sub;
   final LiveScanState state = LiveScanState();
 
@@ -114,6 +139,8 @@ class LiveScan {
   Future<void> shutter() => _ch.invokeMethod('shutter');
   Future<void> setAuto(bool on) => _ch.invokeMethod('auto', {'on': on});
   Future<void> reset() => _ch.invokeMethod('reset');
+  Future<void> setBox(List<double> b) => _ch.invokeMethod('setBox', {'box': b});
+  Future<void> startScan() => _ch.invokeMethod('startScan');
 
   /// Returns number of photos saved and the photo rotation in degrees.
   Future<(int, int)> finish() async {

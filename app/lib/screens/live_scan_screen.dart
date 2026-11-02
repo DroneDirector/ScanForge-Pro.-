@@ -200,7 +200,7 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
               _aiGuessSwitch(),
             ],
             Expanded(child: _state.selected ? const SizedBox() : _reticle()),
-            _bottomPanel(),
+            if (_state.box != null && !_state.scanning) _boxPanel() else _bottomPanel(),
           ]),
         ),
       ),
@@ -308,7 +308,7 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
           Text(on ? 'AI guess: ON' : 'AI guess: OFF',
               style: TextStyle(color: on ? holoCyan : Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
           const SizedBox(width: 8),
-          Text(on ? 'tap the object, AI finds its shape' : 'tap the object, depth only',
+          Text(on ? 'AI fits the box to the object' : 'box fitted from depth only',
               style: const TextStyle(color: Colors.white60, fontSize: 11)),
         ]),
       ),
@@ -343,6 +343,85 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
           const SizedBox(height: 14),
           if (_state.selecting)
             const Text('Finding the object…', style: TextStyle(color: holoCyan, fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------- box
+  void _changeBox(int index, double value) {
+    final b = List<double>.from(_state.box!);
+    b[index] = value;
+    setState(() => _state.box = b);
+    if (!_demo) _live.setBox(b);
+  }
+
+  Widget _boxSlider(String label, int index, double min, double max, {bool angle = false}) {
+    final v = _state.box![index].clamp(min, max);
+    final text = angle ? '${(v * 180 / 3.14159265).round()}°' : '${(v * 100).toStringAsFixed(1)} cm';
+    return Row(children: [
+      SizedBox(width: 62, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+      Expanded(
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor: holoCyan,
+            thumbColor: holoCyan,
+            inactiveTrackColor: Colors.white24,
+            trackHeight: 3,
+            overlayShape: SliderComponentShape.noOverlay,
+          ),
+          child: Slider(value: v.toDouble(), min: min, max: max, onChanged: (x) => _changeBox(index, x)),
+        ),
+      ),
+      SizedBox(
+        width: 58,
+        child: Text(text,
+            textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+      ),
+    ]);
+  }
+
+  Widget _boxPanel() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      child: _glass(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        radius: 22,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Row(children: [
+            Icon(Icons.crop_free_rounded, color: holoCyan, size: 18),
+            SizedBox(width: 8),
+            Text('Scan box', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+            Spacer(),
+            Text('Tap the table to move it', style: TextStyle(color: Colors.white60, fontSize: 11)),
+          ]),
+          const SizedBox(height: 8),
+          _boxSlider('Width', 4, 0.02, 0.8),
+          _boxSlider('Depth', 5, 0.02, 0.8),
+          _boxSlider('Height', 6, 0.01, 0.8),
+          _boxSlider('Rotate', 3, -3.14159265, 3.14159265, angle: true),
+          const SizedBox(height: 10),
+          Row(children: [
+            OutlinedButton.icon(
+              onPressed: _demo ? null : () => _live.reset(),
+              icon: const Icon(Icons.restart_alt_rounded, size: 18),
+              label: const Text('Reselect'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white38),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _demo ? null : () => _live.startScan(),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Start scan'),
+              ),
+            ),
+          ]),
         ]),
       ),
     );
@@ -400,14 +479,22 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
                       _live.setAuto(!_state.auto);
                     },
             ),
-            _roundButton(
-              icon: Icons.restart_alt_rounded,
-              label: 'Reselect',
-              active: false,
-              onTap: _demo || !_state.selected ? null : () => _live.reset(),
-            ),
+            if (_state.scanning)
+              _roundButton(
+                icon: Icons.grain_rounded,
+                label: 'Dots',
+                active: _state.showDots,
+                onTap: () => setState(() => _state.showDots = !_state.showDots),
+              )
+            else
+              _roundButton(
+                icon: Icons.restart_alt_rounded,
+                label: 'Reselect',
+                active: false,
+                onTap: _demo || !_state.selected ? null : () => _live.reset(),
+              ),
             GestureDetector(
-              onTap: _demo || !_state.selected ? null : () => _live.shutter(),
+              onTap: _demo || !_state.scanning ? null : () => _live.shutter(),
               child: Container(
                 width: 70,
                 height: 70,

@@ -52,8 +52,9 @@ class HologramPainter extends CustomPainter {
     if (s.proj.every((e) => e == 0)) return;
     _computePV();
     if (!s.tracking) canvas.saveLayer(Offset.zero & size, Paint()..color = const Color(0x88FFFFFF));
-    if (s.selected) _rings(canvas, size);
-    _points(canvas, size);
+    if (s.box != null) _box(canvas, size, s.box!);
+    if (s.selected && (s.box == null || s.scanning)) _rings(canvas, size);
+    if (s.box == null || s.showDots) _points(canvas, size);
     if (s.selected && s.outline.isNotEmpty && s.photos < 3) _outline(canvas, size);
     if (!s.tracking) canvas.restore();
   }
@@ -129,18 +130,89 @@ class HologramPainter extends CustomPainter {
     );
   }
 
+  /// Corners of the scan box (same convention as the engine's box.txt).
+  static List<List<double>> boxCorners(List<double> b) {
+    final cy = math.cos(b[3]), sy = math.sin(b[3]);
+    final out = <List<double>>[];
+    for (var k = 0; k < 8; k++) {
+      final lx = (k & 1 != 0 ? 0.5 : -0.5) * b[4];
+      final lz = (k & 2 != 0 ? 0.5 : -0.5) * b[5];
+      final lh = k & 4 != 0 ? b[6] : 0.0;
+      out.add([b[0] + cy * lx + sy * lz, b[1] + lh, b[2] - sy * lx + cy * lz]);
+    }
+    return out;
+  }
+
+  void _box(Canvas canvas, Size size, List<double> b) {
+    final cs = boxCorners(b).map((c) => _project(size, c[0], c[1], c[2])).toList();
+    const edges = [
+      [0, 1], [1, 3], [3, 2], [2, 0], // bottom
+      [4, 5], [5, 7], [7, 6], [6, 4], // top
+      [0, 4], [1, 5], [2, 6], [3, 7], // sides
+    ];
+    final adjusting = !s.scanning;
+    final pulse = 0.6 + 0.4 * math.sin(anim * 2 * math.pi);
+    final glow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = adjusting ? 10 : 6
+      ..strokeCap = StrokeCap.round
+      ..color = holoCyan.withValues(alpha: (adjusting ? 0.28 * pulse : 0.12))
+      ..blendMode = BlendMode.plus;
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = adjusting ? 2.4 : 1.4
+      ..strokeCap = StrokeCap.round
+      ..color = adjusting ? holoCyan : Colors.white.withValues(alpha: 0.55);
+    // faint bottom face so the footprint is easy to see
+    if (cs[0] != null && cs[1] != null && cs[3] != null && cs[2] != null) {
+      final face = Path()
+        ..moveTo(cs[0]!.dx, cs[0]!.dy)
+        ..lineTo(cs[1]!.dx, cs[1]!.dy)
+        ..lineTo(cs[3]!.dx, cs[3]!.dy)
+        ..lineTo(cs[2]!.dx, cs[2]!.dy)
+        ..close();
+      canvas.drawPath(face, Paint()..color = holoCyan.withValues(alpha: adjusting ? 0.16 : 0.07));
+    }
+    for (final e in edges) {
+      final a = cs[e[0]], c = cs[e[1]];
+      if (a == null || c == null) continue;
+      canvas.drawLine(a, c, glow);
+      canvas.drawLine(a, c, line);
+    }
+    if (adjusting) {
+      for (final p in cs) {
+        if (p == null) continue;
+        canvas.drawCircle(p, 5, Paint()..color = Colors.white);
+        canvas.drawCircle(p, 3, Paint()..color = holoCyan);
+      }
+    }
+  }
+
   /// Three rings (low, middle, high viewing angles) around the object, split in
   /// 24 segments; photographed directions light up green. A scan ring sweeps
   /// up and down the object.
   void _rings(Canvas canvas, Size size) {
+    final b = s.box;
     final c = s.baseCenter;
-    if (c == null) return;
-    final cx = c[0], cz = c[2];
-    // rings hug the object itself, not the padded scan region
-    final r = math.max(s.radius * 0.6, (s.radius - 0.015) / 1.4 * 1.3);
-    final objTop = s.objectTop ?? s.top;
-    final h = objTop - s.bottom;
-    final heights = [s.bottom + 0.02 * h, s.bottom + 0.5 * h, objTop + 0.15 * h];
+    if (c == null && b == null) return;
+    final double cx, cz, r, bottom, objTop;
+    if (b != null) {
+      // dome around the scan box
+      cx = b[0];
+      cz = b[2];
+      r = 0.5 * math.sqrt(b[4] * b[4] + b[5] * b[5]) * 1.25;
+      bottom = b[1];
+      objTop = b[1] + b[6];
+    } else {
+      cx = c![0];
+      cz = c[2];
+      // rings hug the object itself, not the padded scan region
+      r = math.max(s.radius * 0.6, (s.radius - 0.015) / 1.4 * 1.3);
+      bottom = s.bottom;
+      objTop = s.objectTop ?? s.top;
+    }
+    final h = objTop - bottom;
+    final heights = [bottom + 0.02 * h, bottom + 0.5 * h, objTop + 0.15 * h];
     for (var band = 0; band < 3; band++) {
       final y = heights[band];
       final rr = r * (band == 2 ? 0.8 : 1.0);
@@ -185,7 +257,7 @@ class HologramPainter extends CustomPainter {
     }
     // sweeping scan ring
     final sweep = 0.5 - 0.5 * math.cos(anim * 2 * math.pi);
-    final y = s.bottom + sweep * h;
+    final y = bottom + sweep * h;
     final path = Path();
     var first = true;
     for (var k = 0; k <= 72; k++) {
