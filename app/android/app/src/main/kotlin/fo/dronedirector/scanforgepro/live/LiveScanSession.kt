@@ -620,17 +620,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             maxY = max(hitPoint[1] + hM / 2, minY + hM)
             outline.clear()
         } else {
-            val hp = hitPoint
-            if (hp != null) {
-                // nothing measurable: start with a 10 cm box the user can adjust
-                val hx: Float = hp[0]
-                val hz: Float = hp[2]
-                val hy: Float = table ?: hp[1]
-                applyBox(floatArrayOf(hx, hy, hz, 0f, 0.1f, 0.1f, 0.1f))
-                post(mapOf("type" to "message", "text" to "Adjust the box so it fits the object"))
-            } else {
-                post(mapOf("type" to "message", "text" to "Couldn't find the table there. Move the phone a little and tap again."))
-            }
+            post(mapOf("type" to "message", "text" to "Couldn't find the table there. Move the phone a little and tap again."))
             return
         }
         // the camera sees the front half: move the centre back along the view direction
