@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.2 (alpha), 2026-11-02
+- Live Scan fixes after the first real test (computer mouse):
+  - Tapping the object selects only the object: the table height is measured and the object
+    region is kept tight, so the table and things behind it are no longer included.
+  - The hologram only shows the object: depth is added at each saved photo, inside the
+    object's AI outline, instead of every frame (which added table noise).
+  - The captured percentage never goes down while you scan.
+  - Dots turn green more readily where photos have covered them.
+  - The hologram stays visible when tracking is briefly lost and stays anchored to the object
+    when you look away and come back.
+  - Photos are taken more easily (less strict about steadiness and framing).
+  - "Point the camera at the object" only shows when the object is really out of view.
+  - Detail % is shown once enough is captured.
+
 ## 1.1.1 (alpha), 2026-11-02
 - Small objects: the 3D engine now zooms in on the object in every photo when measuring depth,
   so small objects keep their detail (blobs before, clear shapes now).

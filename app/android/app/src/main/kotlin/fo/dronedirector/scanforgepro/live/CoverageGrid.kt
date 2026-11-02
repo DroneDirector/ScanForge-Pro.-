@@ -35,7 +35,9 @@ class CamModel(
  */
 class CoverageGrid(
     val cx: Float, val cz: Float, val radius: Float,
-    val yMin: Float, val yMax: Float, res: Int = 56,
+    val yMin: Float, val yMax: Float,
+    private val floorY: Float = -1e9f,  // table height: never part of the object
+    res: Int = 56,
 ) {
     val voxel: Float = max(2 * radius, yMax - yMin) / res
     val nx = ceil(2 * radius / voxel).toInt() + 1
@@ -106,11 +108,12 @@ class CoverageGrid(
     private fun isCarved(i: Int) = weight[i] >= 2f && tsdf[i] > 0.6f
 
     private fun isSurface(x: Int, y: Int, z: Int): Boolean {
+        if (wy(y) < floorY + 0.004f) return false
         val i = idx(x, y, z)
         if (weight[i] >= 3f && abs(tsdf[i]) < 0.5f) return true
         // small objects: depth is too coarse up close, so the outline shape
         // (space never carved away, next to carved space) is the surface
-        if (outlines >= 4 && weight[i] == 0f && x > 0 && y > 0 && z > 0 && x < nx - 1 && y < ny - 1 && z < nz - 1) {
+        if (outlines >= 3 && weight[i] == 0f && x > 0 && y > 0 && z > 0 && x < nx - 1 && y < ny - 1 && z < nz - 1) {
             return isCarved(idx(x + 1, y, z)) || isCarved(idx(x - 1, y, z)) || isCarved(idx(x, y + 1, z)) ||
                 isCarved(idx(x, y - 1, z)) || isCarved(idx(x, y, z + 1)) || isCarved(idx(x, y, z - 1))
         }
@@ -191,13 +194,13 @@ class CoverageGrid(
                 // the outward normal points to increasing distance values
                 val vx = c[0] - px; val vy = c[1] - py; val vz = c[2] - pz
                 val vl = sqrt(vx * vx + vy * vy + vz * vz)
-                if ((nrm[0] * vx + nrm[1] * vy + nrm[2] * vz) / vl < 0.15f) continue
+                if ((nrm[0] * vx + nrm[1] * vy + nrm[2] * vz) / vl < 0.05f) continue
                 if (depth != null && depthCam != null) {
                     val du = (u * depthCam.width / cam.width).toInt()
                     val dv = (v * depthCam.height / cam.height).toInt()
                     if (du in 0 until depthCam.width && dv in 0 until depthCam.height) {
                         val dmm = depth[dv * depthCam.width + du].toInt() and 0xFFFF
-                        if (dmm > 0 && dmm / 1000f < zc - 3 * voxel) continue  // hidden
+                        if (dmm > 0 && dmm / 1000f < zc - 3 * voxel - 0.01f) continue  // hidden
                     }
                 }
                 val i = idx(x, y, z)

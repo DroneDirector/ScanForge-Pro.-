@@ -306,6 +306,7 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
   Widget _bottomPanel() {
     final cap = (_state.captured * 100).round();
     final det = (_state.detail * 100).round();
+    final showDetail = _state.captured >= 0.15;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: _glass(
@@ -331,9 +332,11 @@ class _LiveScanScreenState extends State<LiveScanScreen> with SingleTickerProvid
                 Row(children: [
                   const Text('Detail', style: TextStyle(color: Colors.white70, fontSize: 12)),
                   const SizedBox(width: 8),
-                  Expanded(child: _bar(_state.detail, const [Color(0xFFFF8A1F), Color(0xFFFFD23F)], 6)),
+                  Expanded(
+                      child: _bar(showDetail ? _state.detail : 0, const [Color(0xFFFF8A1F), Color(0xFFFFD23F)], 6)),
                   const SizedBox(width: 8),
-                  Text('$det%', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                  Text(showDetail ? '$det%' : '–',
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
                 ]),
               ]),
             ),

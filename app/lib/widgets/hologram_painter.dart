@@ -48,11 +48,14 @@ class HologramPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (!s.tracking || s.proj.every((e) => e == 0)) return;
+    // what is captured stays visible, also while tracking is briefly lost
+    if (s.proj.every((e) => e == 0)) return;
     _computePV();
+    if (!s.tracking) canvas.saveLayer(Offset.zero & size, Paint()..color = const Color(0x88FFFFFF));
     if (s.selected) _rings(canvas, size);
     _points(canvas, size);
-    if (s.selected && s.outline.isNotEmpty) _outline(canvas, size);
+    if (s.selected && s.outline.isNotEmpty && s.photos < 3) _outline(canvas, size);
+    if (!s.tracking) canvas.restore();
   }
 
   void _points(Canvas canvas, Size size) {
