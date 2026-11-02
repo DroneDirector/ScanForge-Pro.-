@@ -399,7 +399,7 @@ class _RoundPainter extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
           text: '${(v * 100).round()}%',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+          style: const TextStyle(fontFamily: 'Roboto', color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
       textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
