@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.5 (alpha), 2026-11-02
+- Zoomed AI detection: the AI first finds roughly where the object is, then looks again at a
+  full-resolution crop around it, so far-away and small objects get a sharp outline.
+- AI outlines snap to the real edges in the photo (guided filter), for clean edges and corners.
+- 3D models keep edges, corners and slopes crisp: edge-preserving smoothing replaces the even
+  smoothing that rounded corners off.
+
 ## 1.1.4 (alpha), 2026-11-02
 - Live Scan waits for you: photos are only taken after you have tapped the object and its
   hologram dots are showing. No automatic picking of the object.

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -39,9 +40,15 @@ static float buildMesh(Volume& vol, Mesh& mesh, bool firstTime, const Reconstruc
                        const std::vector<DepthMap>* maps = nullptr, bool silhouettes = false) {
     extractSurface(vol, mesh);
     keepMainComponents(mesh, 0.35f);
-    taubinSmooth(mesh, vol.smoothIters);
+    if (std::getenv("SF_OLD_SMOOTH")) {
+        taubinSmooth(mesh, vol.smoothIters);
+    } else {
+        // light general smoothing, then edge-preserving smoothing keeps corners crisp
+        taubinSmooth(mesh, std::max(1, vol.smoothIters / 3));
+        featureSmooth(mesh, std::getenv("SF_NIT") ? std::atoi(std::getenv("SF_NIT")) : 12 + 2 * vol.smoothIters, 15);
+    }
     simplifyMesh(mesh, vol.targetFaces);
-    taubinSmooth(mesh, 1);
+    featureSmooth(mesh, 2, 6);
     if (silhouettes && rec && maps) colorizeFromPhotos(vol, *rec, *maps, mesh);
     float measured = measuredSurfaceFraction(vol, mesh, silhouettes);
     finalizeToMillimetres(mesh, vol, firstTime);

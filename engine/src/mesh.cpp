@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <numeric>
@@ -429,6 +430,96 @@ void simplifyMesh(Mesh& m, int targetFaces) {
         out.f.push_back(nfc);
     }
     m = std::move(out);
+}
+
+}  // namespace sf
+
+namespace sf {
+
+// ---------------------------------------------------------------------------
+// Edge-preserving smoothing (bilateral normal filtering + vertex update).
+// Flat areas get smooth while edges, corners and slopes stay crisp.
+// ---------------------------------------------------------------------------
+void featureSmooth(Mesh& m, int normalIters, int vertexIters) {
+    const size_t nf = m.f.size(), nv = m.v.size();
+    if (nf == 0) return;
+    std::vector<cv::Vec3f> fn(nf), fc(nf);
+    std::vector<float> fa(nf);
+    auto faceGeom = [&]() {
+        parallelFor(0, int(nf), [&](int i) {
+            const cv::Vec3i& f = m.f[i];
+            cv::Vec3f a = m.v[f[0]], b = m.v[f[1]], c = m.v[f[2]];
+            cv::Vec3f n = (b - a).cross(c - a);
+            float l = float(cv::norm(n));
+            fa[i] = 0.5f * l;
+            fn[i] = l > 0 ? n / l : cv::Vec3f(0, 0, 1);
+            fc[i] = (a + b + c) / 3.f;
+        });
+    };
+    // vertex -> faces
+    std::vector<int> start(nv + 1, 0);
+    for (auto& f : m.f)
+        for (int k = 0; k < 3; ++k) start[f[k] + 1]++;
+    for (size_t i = 0; i < nv; ++i) start[i + 1] += start[i];
+    std::vector<int> vf(start[nv]);
+    {
+        std::vector<int> fill(start.begin(), start.end() - 1);
+        for (int i = 0; i < int(nf); ++i)
+            for (int k = 0; k < 3; ++k) vf[fill[m.f[i][k]]++] = i;
+    }
+    // face neighbours sharing a vertex
+    std::vector<std::vector<int>> nb(nf);
+    parallelFor(0, int(nf), [&](int i) {
+        auto& l = nb[i];
+        for (int k = 0; k < 3; ++k) {
+            int v = m.f[i][k];
+            for (int j = start[v]; j < start[v + 1]; ++j)
+                if (vf[j] != i) l.push_back(vf[j]);
+        }
+        std::sort(l.begin(), l.end());
+        l.erase(std::unique(l.begin(), l.end()), l.end());
+    });
+    faceGeom();
+    double edgeSum = 0;
+    for (auto& f : m.f) edgeSum += cv::norm(m.v[f[0]] - m.v[f[1]]);
+    const char* es = std::getenv("SF_SIG_S");
+    const char* er = std::getenv("SF_SIG_R");
+    const float sigmaS = float((es ? std::atof(es) : 3.0) * edgeSum / nf);  // spatial, in edge lengths
+    const float sigmaR = er ? float(std::atof(er)) : 0.5f;                 // normal difference (keeps edges)
+    std::vector<cv::Vec3f> nn(nf);
+    for (int it = 0; it < normalIters; ++it) {
+        parallelFor(0, int(nf), [&](int i) {
+            cv::Vec3f acc = fn[i] * fa[i];
+            for (int j : nb[i]) {
+                float ds = float(cv::norm(fc[i] - fc[j]));
+                float dr = float(cv::norm(fn[i] - fn[j]));
+                float w = fa[j] * std::exp(-ds * ds / (2 * sigmaS * sigmaS)) * std::exp(-dr * dr / (2 * sigmaR * sigmaR));
+                acc += fn[j] * w;
+            }
+            float l = float(cv::norm(acc));
+            nn[i] = l > 0 ? acc / l : fn[i];
+        });
+        fn.swap(nn);
+    }
+    // move vertices so faces follow the filtered normals
+    std::vector<cv::Vec3f> nvPos(nv);
+    for (int it = 0; it < vertexIters; ++it) {
+        parallelFor(0, int(nf), [&](int i) {
+            const cv::Vec3i& f = m.f[i];
+            fc[i] = (m.v[f[0]] + m.v[f[1]] + m.v[f[2]]) / 3.f;
+        });
+        parallelFor(0, int(nv), [&](int v) {
+            int b = start[v], e = start[v + 1];
+            if (e <= b) { nvPos[v] = m.v[v]; return; }
+            cv::Vec3f d(0, 0, 0);
+            for (int j = b; j < e; ++j) {
+                int f = vf[j];
+                d += fn[f] * fn[f].dot(fc[f] - m.v[v]);
+            }
+            nvPos[v] = m.v[v] + d * (1.f / (e - b));
+        });
+        m.v.swap(nvPos);
+    }
 }
 
 }  // namespace sf

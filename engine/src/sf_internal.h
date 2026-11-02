@@ -224,6 +224,7 @@ bool loadVolume(const std::string& path, Volume& vol);
 // mesh.cpp
 void keepMainComponents(Mesh& m, float minFraction);
 void taubinSmooth(Mesh& m, int iterations);
+void featureSmooth(Mesh& m, int normalIters, int vertexIters);
 void removeUnusedVertices(Mesh& m);
 void simplifyMesh(Mesh& m, int targetFaces);
 bool isWatertight(const Mesh& m);

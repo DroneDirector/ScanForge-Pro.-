@@ -421,23 +421,22 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         val seg = if (useAiGuess) segmenterOrNull() else null
         if (seg != null && yuv != null) {
             val jpeg = toJpeg(yuv)
-            val opts = BitmapFactory.Options().apply { inSampleSize = max(1, yuv.w / 480) }
-            val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)
-            val m = if (bmp != null) seg.segment(bmp, imgN[0], imgN[1]) else null
-            if (m != null && bmp != null) {
-                var x0 = bmp.width; var x1 = -1; var y0 = bmp.height; var y1 = -1
-                for (yy in 0 until bmp.height) for (xx in 0 until bmp.width) {
-                    if (m[yy * bmp.width + xx].toInt() == 0) continue
+            val res = seg.segmentZoomed(jpeg, yuv.w, yuv.h, imgN[0], imgN[1])
+            if (res != null) {
+                val m = res.mask
+                var x0 = res.width; var x1 = -1; var y0 = res.height; var y1 = -1
+                for (yy in 0 until res.height) for (xx in 0 until res.width) {
+                    if (m[yy * res.width + xx].toInt() == 0) continue
                     if (xx < x0) x0 = xx
                     if (xx > x1) x1 = xx
                     if (yy < y0) y0 = yy
                     if (yy > y1) y1 = yy
                 }
                 if (x1 >= x0) {
-                    aiWidthPx = (x1 - x0 + 1f) * cam.width / bmp.width
-                    aiHeightPx = (y1 - y0 + 1f) * cam.height / bmp.height
+                    aiWidthPx = (x1 - x0 + 1f) * cam.width / res.width
+                    aiHeightPx = (y1 - y0 + 1f) * cam.height / res.height
                 }
-                val icam = cam.scaled(bmp.width, bmp.height)
+                val icam = cam.scaled(res.width, res.height)
                 imageMask = m
                 imageMaskCam = icam
                 val mask = BooleanArray(w * h)
@@ -446,12 +445,11 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
                     val dd = if (d > 0) d else 1f
                     val p = project(icam, world(u, v, dd)) ?: continue
                     val iu = p[0].toInt(); val iv = p[1].toInt()
-                    if (iu in 0 until bmp.width && iv in 0 until bmp.height && m[iv * bmp.width + iu].toInt() != 0) mask[v * w + u] = true
+                    if (iu in 0 until res.width && iv in 0 until res.height && m[iv * res.width + iu].toInt() != 0) mask[v * w + u] = true
                 }
                 objMask = mask
                 aiUsed = true
             }
-            bmp?.recycle()
         }
 
         // AI outline that covers a large part of the view is the table, not the object
@@ -734,25 +732,18 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
             val seg = if (useAiGuess) segmenterOrNull() else null
             val pc = if (ctr != null) project(cam, ctr) else null
             if (seg != null && pc != null && g != null) {
-                val opts = BitmapFactory.Options().apply { inSampleSize = max(1, yuv.w / 640) }
-                val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)
-                if (bmp != null) {
-                    mask = seg.segment(bmp, pc[0] / cam.width, pc[1] / cam.height)
-                    mcam = cam.scaled(bmp.width, bmp.height)
-                    if (mask != null) {
-                        val mm = mask
-                        var n = 0
-                        if (mm != null) for (b in mm) if (b.toInt() != 0) n++
-                        if (mm != null && n > 0.5f * mm.size) mask = null  // outline grabbed the table: ignore
-                    }
-                    val good = mask
-                    if (good != null) {
-                        val pixels = IntArray(good.size) { if (good[it].toInt() != 0) -0x1 else -0x1000000 }
-                        val mb = Bitmap.createBitmap(pixels, bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+                val res = seg.segmentZoomed(jpeg, cam.width, cam.height, pc[0] / cam.width, pc[1] / cam.height)
+                if (res != null) {
+                    var n = 0
+                    for (b in res.mask) if (b.toInt() != 0) n++
+                    if (n <= 0.5f * res.mask.size) {  // else the outline grabbed the table: ignore
+                        mask = res.mask
+                        mcam = cam.scaled(res.width, res.height)
+                        val pixels = IntArray(res.mask.size) { if (res.mask[it].toInt() != 0) -0x1 else -0x1000000 }
+                        val mb = Bitmap.createBitmap(pixels, res.width, res.height, Bitmap.Config.ARGB_8888)
                         FileOutputStream(File(masksDir, "$name.png")).use { mb.compress(Bitmap.CompressFormat.PNG, 100, it) }
                         mb.recycle()
                     }
-                    bmp.recycle()
                 }
             }
             // fuse this photo's depth (only inside the object outline when there is one)
