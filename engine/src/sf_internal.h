@@ -28,6 +28,7 @@ struct Settings {
     int targetFaces = 150000; // triangles in the final mesh
     double focal35 = 0.0;     // 35 mm equivalent focal length, 0 = unknown
     int threads = 0;          // 0 = hardware concurrency
+    bool turntableMasks = false; // use only features inside object masks
 
     static Settings preset(int quality);
 };
@@ -127,6 +128,11 @@ struct Reconstruction {
     Intrinsics K;
     PriorIntrinsics priorK;
     bool metric = false;                 // world units are metres
+    bool turntable = false;              // object turns, camera stands still
+    bool hasBox = false;                 // scan box placed in Live Scan (world)
+    cv::Vec3d boxCenter = {0, 0, 0};     // bottom centre
+    double boxYaw = 0, boxW = 0, boxD = 0, boxH = 0;
+    std::vector<cv::Vec3d> boxCorners() const;
     bool upKnown = false;
     cv::Vec3d up = {0, 0, 1};
     int numRegistered() const;

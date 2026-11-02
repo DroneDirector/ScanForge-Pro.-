@@ -39,7 +39,7 @@ ThemeData buildTheme() {
         foregroundColor: Colors.black,
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        textStyle: const TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w600, fontSize: 15),
       ),
     ),
     sliderTheme: const SliderThemeData(activeTrackColor: SfColors.accent, thumbColor: SfColors.accent),

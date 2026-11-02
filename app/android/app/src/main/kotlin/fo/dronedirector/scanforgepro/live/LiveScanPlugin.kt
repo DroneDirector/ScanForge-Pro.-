@@ -68,6 +68,21 @@ class LiveScanPlugin(private val activity: Activity, engine: FlutterEngine) {
                     result.success(null)
                 }
                 "shutter" -> { session?.shutter(); result.success(null) }
+                "setBox" -> {
+                    val l = call.argument<List<Double>>("box")
+                    if (l != null && l.size == 7) session?.applyBox(FloatArray(7) { l[it].toFloat() })
+                    result.success(null)
+                }
+                "startScan" -> { session?.startScan(); result.success(null) }
+                "segmentPhotos" -> {
+                    val dir = call.argument<String>("project") ?: ""
+                    Thread {
+                        val n = PhotoSegmenter.run(activity, java.io.File(dir)) { done, total ->
+                            main.post { sink?.success(mapOf("type" to "segment", "done" to done, "total" to total)) }
+                        }
+                        main.post { result.success(n) }
+                    }.start()
+                }
                 "auto" -> { session?.auto = call.argument<Boolean>("on") ?: true; result.success(null) }
                 "reset" -> { session?.resetTarget(); result.success(null) }
                 "finish" -> {

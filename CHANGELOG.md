@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0 (alpha), 2026-11-02
+- **Live Scan with scan box and dome** (AR): tap the object to place a box (fitted with AI or
+  depth), adjust width, depth, height and rotation with sliders, tap the table to move it, then
+  Start. A dome of segments around the box turns green for each direction photographed; the
+  percentage follows the dome, so it never jumps or drops. Surface dots are optional (Dots).
+  The 3D engine uses the box as the exact object region (crops, volume and flat base).
+- **Turntable mode**: phone on a stand, the object turns on a turntable or lazy Susan. Photos at
+  a steady pace (1–3 s), 24/36/48 per round, up to three rounds at different heights, focus and
+  exposure locked per round. Afterwards the AI separates the object from the background in every
+  photo; the engine uses only the turning part of the photos.
+- New scan menu: Live Scan (AR), Turntable, Scan with camera, Import photos.
+
 ## 1.1.5 (alpha), 2026-11-02
 - Zoomed AI detection: the AI first finds roughly where the object is, then looks again at a
   full-resolution crop around it, so far-away and small objects get a sharp outline.

@@ -234,6 +234,24 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
     ext = hi - lo;
     maxExt = std::max({ext[0], ext[1], ext[2]});
 
+    if (rec.hasBox && rec.metric) {
+        // Live Scan box: the object is exactly what is inside it
+        cv::Vec3d bl(1e30, 1e30, 1e30), bh(-1e30, -1e30, -1e30);
+        for (const auto& X : rec.boxCorners()) {
+            cv::Vec3d m = M * (X - center);
+            for (int k = 0; k < 3; ++k) { bl[k] = std::min(bl[k], m[k]); bh[k] = std::max(bh[k], m[k]); }
+        }
+        cv::Vec3d be = bh - bl;
+        double pad = 0.06 * std::max({be[0], be[1], be[2]});
+        floorZ = bl[2];
+        lo = bl - cv::Vec3d(pad, pad, 0);
+        hi = bh + cv::Vec3d(pad, pad, pad);
+        lo[2] = bl[2] - pad * 0.5;
+        ext = hi - lo;
+        maxExt = std::max({ext[0], ext[1], ext[2]});
+        p.log("fusion: using the scan box");
+    }
+
     const float voxel = float(maxExt / s.volumeRes);
     vol.nx = std::max(8, int(std::ceil(ext[0] / voxel)) + 1);
     vol.ny = std::max(8, int(std::ceil(ext[1] / voxel)) + 1);

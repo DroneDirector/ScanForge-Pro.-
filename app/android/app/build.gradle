@@ -85,6 +85,7 @@ flutter {
 
 dependencies {
     implementation "androidx.core:core-ktx:1.13.1"
+    implementation "androidx.exifinterface:exifinterface:1.3.7"
     // ARCore (Live Scan): camera tracking and depth
     implementation "com.google.ar:core:1.45.0"
     // MediaPipe (Apache 2.0): AI object selection
