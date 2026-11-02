@@ -17,6 +17,7 @@ set(SF_SOURCES
     src/util.cpp
     src/features.cpp
     src/sfm.cpp
+    src/priors.cpp
     src/ba.cpp
     src/dense.cpp
     src/fusion.cpp

@@ -35,13 +35,15 @@ static std::string joinPath(const std::string& dir, const char* name) {
 // Full pipeline
 // ---------------------------------------------------------------------------
 // Returns the share of the surface that the photos actually measured.
-static float buildMesh(Volume& vol, Mesh& mesh, bool firstTime) {
+static float buildMesh(Volume& vol, Mesh& mesh, bool firstTime, const Reconstruction* rec = nullptr,
+                       const std::vector<DepthMap>* maps = nullptr, bool silhouettes = false) {
     extractSurface(vol, mesh);
     keepMainComponents(mesh, 0.35f);
     taubinSmooth(mesh, vol.smoothIters);
     simplifyMesh(mesh, vol.targetFaces);
     taubinSmooth(mesh, 1);
-    float measured = measuredSurfaceFraction(vol, mesh);
+    if (silhouettes && rec && maps) colorizeFromPhotos(vol, *rec, *maps, mesh);
+    float measured = measuredSurfaceFraction(vol, mesh, silhouettes);
     finalizeToMillimetres(mesh, vol, firstTime);
     return measured;
 }
@@ -71,8 +73,10 @@ static void runPipeline(sf_job* job) {
             rec.views.push_back(std::move(v));
         }
 
+        loadPriors(rec, job->dir, p);
         p.set(SF_STAGE_FEATURES, 0.f, "Finding details in the photos");
         detectFeatures(rec, s, p);
+        applyPriorIntrinsics(rec);
 
         p.set(SF_STAGE_MATCHING, 0.f, "Matching photos");
         matchFeatures(rec, s, p);
@@ -81,7 +85,16 @@ static void runPipeline(sf_job* job) {
         p.log(fmt("tracks: %d", int(rec.tracks.size())));
 
         p.set(SF_STAGE_CAMERAS, 0.f, "Solving camera positions");
-        if (!runSfM(rec, s, p))
+        bool solved = false;
+        if (rec.posed()) solved = runPosedSfM(rec, s, p);
+        if (!solved) {
+            for (auto& v : rec.views) v.registered = false;
+            for (auto& t : rec.tracks) t.valid = false;
+            solved = runSfM(rec, s, p);
+            if (solved && rec.numPriors() >= 3) alignToPriors(rec, p);
+        }
+        if (solved && !rec.metric) alignToGps(rec, p);
+        if (!solved)
             throw std::runtime_error(
                 "The camera positions could not be worked out. Take more photos with more overlap "
                 "(each photo should share most of what it sees with the next one).");
@@ -105,11 +118,13 @@ static void runPipeline(sf_job* job) {
         p.set(SF_STAGE_FUSION, 0.f, "Building the 3D volume");
         Volume vol;
         fuseDepthMaps(rec, maps, s, p, vol);
-        maps.clear();
+        bool silhouettes = false;
+        for (auto& dm : maps) silhouettes = silhouettes || !dm.mask.empty();
 
         p.set(SF_STAGE_MESH, 0.f, "Creating the mesh");
         Mesh mesh;
-        float measured = buildMesh(vol, mesh, true);
+        float measured = buildMesh(vol, mesh, true, &rec, &maps, silhouettes);
+        maps.clear();
         p.sub(0.7f);
         p.log(fmt("mesh: %.1f%% of the surface measured by photos", measured * 100.0));
         if (mesh.f.empty()) throw std::runtime_error("No surface could be created from the photos.");

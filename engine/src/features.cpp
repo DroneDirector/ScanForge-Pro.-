@@ -43,6 +43,8 @@ void detectFeatures(Reconstruction& rec, const Settings& s, Progress& p) {
             errors[i] = "cannot read " + v.path;
             return;
         }
+        v.origW = img.cols;
+        v.origH = img.rows;
         double sc = std::min(1.0, double(s.sfmMaxDim) / std::max(img.cols, img.rows));
         if (sc < 1.0) cv::resize(img, img, cv::Size(), sc, sc, cv::INTER_AREA);
         v.width = img.cols;
@@ -122,9 +124,40 @@ static std::vector<std::pair<int, int>> choosePairs(int n) {
     return pairs;
 }
 
+// With known camera positions: pair photos that look at the scene from
+// similar directions.
+static std::vector<std::pair<int, int>> choosePairsPosed(const Reconstruction& rec) {
+    const int n = int(rec.views.size());
+    std::vector<std::pair<int, int>> pairs;
+    for (int i = 0; i < n; ++i) {
+        const View& a = rec.views[i];
+        std::vector<std::pair<double, int>> cand;
+        for (int j = 0; j < n; ++j) {
+            if (j == i) continue;
+            const View& b = rec.views[j];
+            if (a.hasPrior && b.hasPrior) {
+                cv::Vec3d ax(a.priorR(2, 0), a.priorR(2, 1), a.priorR(2, 2));
+                cv::Vec3d bx(b.priorR(2, 0), b.priorR(2, 1), b.priorR(2, 2));
+                double ang = std::acos(std::clamp(ax.dot(bx), -1.0, 1.0)) * 57.2957795;
+                if (ang < 50) cand.emplace_back(ang, j);
+            } else {
+                cand.emplace_back(1000.0 + std::abs(i - j), j);  // unknown pose: neighbours in order
+            }
+        }
+        std::sort(cand.begin(), cand.end());
+        for (size_t k = 0; k < cand.size() && k < 14; ++k) {
+            int j = cand[k].second;
+            pairs.emplace_back(std::min(i, j), std::max(i, j));
+        }
+    }
+    std::sort(pairs.begin(), pairs.end());
+    pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
+    return pairs;
+}
+
 void matchFeatures(Reconstruction& rec, const Settings& s, Progress& p) {
     const int n = int(rec.views.size());
-    auto pairs = choosePairs(n);
+    auto pairs = rec.posed() && n > 30 ? choosePairsPosed(rec) : choosePairs(n);
     p.log(fmt("matching: %d photo pairs", int(pairs.size())));
 
     // Group pairs by the "train" image so each index is used by one thread.

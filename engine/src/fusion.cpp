@@ -8,6 +8,8 @@
 // The surface is extracted with marching tetrahedra.
 #include "sf_internal.h"
 
+#include <opencv2/imgproc.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -106,7 +108,9 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
     camUp = unit(camUp);
     meanC *= 1.0 / cams.size();
     cv::Vec3d up = camUp;
-    if (cams.size() >= 6) {
+    if (rec.upKnown) {
+        up = rec.up;
+    } else if (cams.size() >= 6) {
         cv::Mat cov = cv::Mat::zeros(3, 3, CV_64F);
         for (const View* v : cams) {
             cv::Vec3d d = v->center() - meanC;
@@ -239,6 +243,7 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
     vol.M = M;
     vol.center = center;
     vol.targetFaces = s.targetFaces;
+    vol.metric = rec.metric;
     vol.smoothIters = s.smoothIters;
     vol.floorZ = vol.autoFloorZ = float(floorZ > -1e29 ? floorZ + 0.75 * voxel : -1e30);
     const size_t N = size_t(vol.nx) * vol.ny * vol.nz;
@@ -254,6 +259,7 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
         cv::Vec3d b;
         const DepthMap* dm;
         float trunc;
+        cv::Mat object;  // dilated object mask (silhouette), empty if none
     };
     std::vector<Proj> projs;
     for (const auto& dm : maps) {
@@ -264,6 +270,11 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
         pr.dm = &dm;
         double footprint = camDist / dm.K(0, 0);
         pr.trunc = float(std::max(3.0 * voxel, 3.0 * footprint));
+        if (!dm.mask.empty()) {
+            // grow the outline a little so mask errors never cut into the object
+            int r = std::max(1, dm.mask.cols / 300);
+            cv::dilate(dm.mask, pr.object, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(2 * r + 1, 2 * r + 1)));
+        }
         projs.push_back(pr);
     }
 
@@ -285,6 +296,15 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
                     if (Z <= 1e-9) continue;
                     int u = int(q[0] / Z + 0.5), v = int(q[1] / Z + 0.5);
                     if (u < 0 || v < 0 || u >= W || v >= H) continue;
+                    if (!pr.object.empty() && pr.object.at<uchar>(v, u) == 0) {
+                        // outside the object's outline: this space is empty (silhouette carving)
+                        size_t id = base + x;
+                        float& w = vol.weight[id];
+                        float& t = vol.tsdf[id];
+                        t = (t * w + 1.f) / (w + 1.f);
+                        w = std::min(w + 1.f, 250.f);
+                        continue;
+                    }
                     float d = D.at<float>(v, u);
                     if (d <= 0) continue;
                     float sdf = float(d - Z);
@@ -432,9 +452,50 @@ void extractSurface(const Volume& vol, Mesh& mesh) {
             }
 }
 
+// Colours each vertex from the photo that looks most directly at it
+// (used with object masks, where plain surfaces get no colour from depth).
+void colorizeFromPhotos(const Volume& vol, const Reconstruction& rec, const std::vector<DepthMap>& maps, Mesh& mesh) {
+    if (maps.empty() || mesh.v.empty()) return;
+    std::vector<cv::Vec3f> n(mesh.v.size(), cv::Vec3f(0, 0, 0));
+    for (auto& f : mesh.f) {
+        cv::Vec3f fn = (mesh.v[f[1]] - mesh.v[f[0]]).cross(mesh.v[f[2]] - mesh.v[f[0]]);
+        for (int k = 0; k < 3; ++k) n[f[k]] += fn;
+    }
+    parallelFor(0, int(mesh.v.size()), [&](int i) {
+        cv::Vec3d pm(mesh.v[i][0], mesh.v[i][1], mesh.v[i][2]);
+        cv::Vec3d nw = vol.M.t() * cv::Vec3d(n[i][0], n[i][1], n[i][2]);
+        double nl = cv::norm(nw);
+        if (nl < 1e-12) return;
+        nw /= nl;
+        cv::Vec3d X = vol.center + vol.M.t() * pm;
+        double best = 0.2;
+        cv::Vec3b col;
+        bool found = false;
+        for (const auto& dm : maps) {
+            const View& v = rec.views[dm.view];
+            cv::Vec3d toCam = v.center() - X;
+            double dist = cv::norm(toCam);
+            double facing = nw.dot(toCam) / dist;
+            if (facing <= best) continue;
+            cv::Vec3d Xc = v.R * X + v.t;
+            if (Xc[2] <= 0) continue;
+            cv::Vec3d uv = dm.K * Xc;
+            int u = int(uv[0] / uv[2] + 0.5), w = int(uv[1] / uv[2] + 0.5);
+            if (u < 0 || w < 0 || u >= dm.color.cols || w >= dm.color.rows) continue;
+            float d = dm.depth.at<float>(w, u);
+            if (d > 0 && d < Xc[2] * 0.97) continue;  // something in front
+            best = facing;
+            const cv::Vec3b& bgr = dm.color.at<cv::Vec3b>(w, u);
+            col = cv::Vec3b(bgr[2], bgr[1], bgr[0]);
+            found = true;
+        }
+        if (found) mesh.c[i] = col;
+    });
+}
+
 // Share of the mesh surface that lies where photos actually measured a
 // surface (the rest was filled in because nothing was seen there).
-float measuredSurfaceFraction(const Volume& vol, const Mesh& mesh) {
+float measuredSurfaceFraction(const Volume& vol, const Mesh& mesh, bool silhouettes) {
     if (mesh.v.empty()) return 0.f;
     size_t ok = 0;
     for (const auto& p : mesh.v) {
@@ -446,7 +507,8 @@ float measuredSurfaceFraction(const Volume& vol, const Mesh& mesh) {
                 for (int dx = -1; dx <= 2 && !hit; ++dx) {
                     int x = x0 + dx, y = y0 + dy, z = z0 + dz;
                     if (x < 0 || y < 0 || z < 0 || x >= vol.nx || y >= vol.ny || z >= vol.nz) continue;
-                    if (vol.colorW[vol.idx(x, y, z)] > 0) hit = true;
+                    size_t id = vol.idx(x, y, z);
+                    if (vol.colorW[id] > 0 || (silhouettes && vol.weight[id] > 0)) hit = true;
                 }
         ok += hit ? 1 : 0;
     }

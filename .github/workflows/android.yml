@@ -2,7 +2,7 @@ name: Android build
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'dev/**']
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,13 @@ jobs:
           ./build-engine/sf_cli /tmp/proj 0 /tmp/syn/*.jpg | tail -5
           cat /tmp/proj/log.txt
           test -s /tmp/proj/scan.stl && test -s /tmp/proj/scan.3mf
+      - name: Live Scan test (plain object, camera positions + masks)
+        run: |
+          python3 engine/tests/make_synthetic.py /tmp/synp 24 --poses --masks --plain
+          mkdir -p /tmp/projp && cp -r /tmp/synp/poses.txt /tmp/synp/masks /tmp/projp/
+          ./build-engine/sf_cli /tmp/projp 0 /tmp/synp/*.jpg | tail -3
+          grep -E "Live Scan|aligned|measured" /tmp/projp/log.txt
+          test -s /tmp/projp/scan.stl
 
   android:
     name: Android APK

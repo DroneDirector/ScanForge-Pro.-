@@ -192,7 +192,8 @@ void finalizeToMillimetres(Mesh& m, Volume& vol, bool firstTime) {
     m.bounds(mn, mx);
     if (firstTime) {
         float maxDim = std::max({mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]});
-        vol.mmPerUnit = maxDim > 0 ? 100.0 / maxDim : 1.0;  // default: 100 mm longest side
+        // real size when known (metres -> mm), else 100 mm on the longest side
+        vol.mmPerUnit = vol.metric ? 1000.0 : (maxDim > 0 ? 100.0 / maxDim : 1.0);
         vol.shiftUnits = cv::Vec3d(0.5 * (mn[0] + mx[0]), 0.5 * (mn[1] + mx[1]), mn[2]);
     } else {
         vol.shiftUnits[2] = mn[2];

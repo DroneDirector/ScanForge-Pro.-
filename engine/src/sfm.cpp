@@ -334,4 +334,57 @@ bool runSfM(Reconstruction& rec, const Settings& s, Progress& p) {
     return rec.numRegistered() >= 3;
 }
 
+// ---------------------------------------------------------------------------
+// Camera positions known from Live Scan: start from them and refine.
+// ---------------------------------------------------------------------------
+bool runPosedSfM(Reconstruction& rec, const Settings& s, Progress& p) {
+    (void)s;
+    int fixed = -1;
+    for (int i = 0; i < int(rec.views.size()); ++i) {
+        View& v = rec.views[i];
+        if (!v.hasPrior) continue;
+        v.R = v.priorR;
+        v.t = v.priorT;
+        v.registered = true;
+        if (fixed < 0) fixed = i;
+    }
+    int n = triangulateNew(rec, 1.5, 6.0);
+    p.log(fmt("cameras: %d photos placed from Live Scan, %d points", rec.numRegistered(), n));
+    if (n < 50) {
+        for (auto& v : rec.views) v.registered = false;
+        for (auto& t : rec.tracks) t.valid = false;
+        return false;
+    }
+    BAOptions o;
+    o.fixedView = fixed;
+    o.maxIterations = 15;
+    o.refineIntrinsics = rec.numRegistered() >= 8;
+    bundleAdjust(rec, o);
+    filterOutliers(rec, 4.0);
+    triangulateNew(rec, 1.5, 4.0);
+
+    // photos without a Live Scan position (e.g. added later)
+    for (int round = 0; round < 3; ++round) {
+        bool any = false;
+        for (int i = 0; i < int(rec.views.size()); ++i)
+            if (!rec.views[i].registered && registerView(rec, i, 20)) any = true;
+        if (!any) break;
+        triangulateNew(rec, 1.5, 4.0);
+    }
+    o.maxIterations = 30;
+    o.refineDistortion = rec.numRegistered() >= 12;
+    bundleAdjust(rec, o);
+    filterOutliers(rec, 2.5);
+    triangulateNew(rec, 1.5, 3.0);
+    bundleAdjust(rec, o);
+    filterOutliers(rec, 2.5);
+    alignToPriors(rec, p);
+    p.registered = rec.numRegistered();
+    int valid = 0;
+    for (auto& t : rec.tracks) valid += t.valid ? 1 : 0;
+    p.log(fmt("cameras: %d of %d photos solved, %d points, focal %.1f px", rec.numRegistered(),
+              int(rec.views.size()), valid, rec.K.f));
+    return rec.numRegistered() >= 3;
+}
+
 }  // namespace sf

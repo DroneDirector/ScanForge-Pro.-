@@ -25,6 +25,7 @@ namespace {
 struct DenseImage {
     cv::Mat gray;    // CV_32F 0..1
     cv::Mat color;   // CV_8UC3
+    cv::Mat mask;    // CV_8U 255 = object, may be empty
     cv::Matx33d K;
 };
 
@@ -37,12 +38,27 @@ DenseImage loadDense(const Reconstruction& rec, const View& v, int maxDim) {
     cv::resize(img, img, cv::Size(w, h), 0, 0, cv::INTER_AREA);
     double s = double(w) / v.width;
     d.K = cv::Matx33d(rec.K.f * s, 0, rec.K.cx * s, 0, rec.K.f * s, rec.K.cy * s, 0, 0, 1);
+    cv::Mat mask;
+    if (!v.maskPath.empty()) {
+        cv::Mat m = cv::imread(v.maskPath, cv::IMREAD_GRAYSCALE);
+        if (!m.empty()) {
+            cv::resize(m, mask, cv::Size(w, h), 0, 0, cv::INTER_NEAREST);
+            cv::threshold(mask, mask, 127, 255, cv::THRESH_BINARY);
+        }
+    }
     if (std::abs(rec.K.k1) > 1e-6) {
         cv::Mat dist = (cv::Mat_<double>(4, 1) << rec.K.k1, 0, 0, 0);
         cv::Mat und;
         cv::undistort(img, und, cv::Mat(d.K), dist, cv::Mat(d.K));
         img = und;
+        if (!mask.empty()) {
+            cv::Mat map1, map2, um;
+            cv::initUndistortRectifyMap(cv::Mat(d.K), dist, cv::Mat(), cv::Mat(d.K), mask.size(), CV_32FC1, map1, map2);
+            cv::remap(mask, um, map1, map2, cv::INTER_NEAREST);
+            mask = um;
+        }
     }
+    d.mask = mask;
     d.color = img;
     cv::Mat g;
     cv::cvtColor(img, g, cv::COLOR_BGR2GRAY);
@@ -263,6 +279,7 @@ void computeDepthMaps(const Reconstruction& rec, const Settings& s, Progress& p,
         dm.view = pl.view;
         dm.K = R.K;
         dm.color = R.color;
+        dm.mask = R.mask;
         dm.depth = cv::Mat::zeros(sz, CV_32F);
         const float* pb = best.ptr<float>();
         const float* pbe = before.ptr<float>();
@@ -286,6 +303,7 @@ void computeDepthMaps(const Reconstruction& rec, const Settings& s, Progress& p,
         cv::Mat filt;
         cv::medianBlur(dm.depth, filt, 3);
         dm.depth.setTo(0, filt == 0);
+        if (!dm.mask.empty()) dm.depth.setTo(0, dm.mask == 0);
     }
     p.checkCancel();
 

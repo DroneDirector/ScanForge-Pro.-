@@ -83,6 +83,15 @@ struct View {
     cv::Matx33d R = cv::Matx33d::eye(); // world -> camera rotation
     cv::Vec3d t = {0, 0, 0};             // world -> camera translation
     bool registered = false;
+    int origW = 0, origH = 0;            // full photo size
+
+    // Optional priors (Live Scan camera positions, GPS) and object mask
+    bool hasPrior = false;
+    cv::Matx33d priorR = cv::Matx33d::eye();
+    cv::Vec3d priorT = {0, 0, 0};
+    bool hasGps = false;
+    cv::Vec3d gps = {0, 0, 0};           // latitude, longitude (deg), altitude (m)
+    std::string maskPath;
 
     cv::Vec3d center() const { return -(R.t() * t); }
     cv::Vec3d axis() const { return cv::Vec3d(R(2, 0), R(2, 1), R(2, 2)); }
@@ -105,12 +114,24 @@ struct PairMatches {
     std::vector<cv::Vec2i> m;            // inlier keypoint index pairs
 };
 
+struct PriorIntrinsics {
+    bool valid = false;
+    double fx = 0, fy = 0, cx = 0, cy = 0;
+    int width = 0, height = 0;           // photo size the intrinsics refer to
+};
+
 struct Reconstruction {
     std::vector<View> views;
     std::vector<Track> tracks;
     std::vector<PairMatches> pairs;
     Intrinsics K;
+    PriorIntrinsics priorK;
+    bool metric = false;                 // world units are metres
+    bool upKnown = false;
+    cv::Vec3d up = {0, 0, 1};
     int numRegistered() const;
+    int numPriors() const;
+    bool posed() const { return numPriors() * 2 >= int(views.size()) && numPriors() >= 3; }
 };
 
 // ---------------------------------------------------------------------------
@@ -136,8 +157,18 @@ void detectFeatures(Reconstruction& rec, const Settings& s, Progress& p);
 void matchFeatures(Reconstruction& rec, const Settings& s, Progress& p);
 void buildTracks(Reconstruction& rec);
 
+// priors.cpp
+void loadPriors(Reconstruction& rec, const std::string& projectDir, Progress& p);
+void applyPriorIntrinsics(Reconstruction& rec);
+bool umeyama(const std::vector<cv::Vec3d>& src, const std::vector<cv::Vec3d>& dst, double& s,
+             cv::Matx33d& R, cv::Vec3d& t);
+void applySimilarity(Reconstruction& rec, double s, const cv::Matx33d& R, const cv::Vec3d& t);
+void alignToPriors(Reconstruction& rec, Progress& p);
+void alignToGps(Reconstruction& rec, Progress& p);
+
 // sfm.cpp
 bool runSfM(Reconstruction& rec, const Settings& s, Progress& p);
+bool runPosedSfM(Reconstruction& rec, const Settings& s, Progress& p);
 bool projectPoint(const Intrinsics& K, const View& v, const cv::Vec3d& X, cv::Vec2d& uv);
 
 // ba.cpp
@@ -155,6 +186,7 @@ struct DepthMap {
     int view = -1;
     cv::Mat depth;        // CV_32F, 0 = invalid
     cv::Mat color;        // CV_8UC3 BGR, same size
+    cv::Mat mask;         // CV_8U, 255 = object (empty if no mask)
     cv::Matx33d K;        // intrinsics at depth resolution (undistorted)
 };
 void computeDepthMaps(const Reconstruction& rec, const Settings& s, Progress& p,
@@ -176,6 +208,7 @@ struct Volume {
     double mmPerUnit = 1.0;
     int targetFaces = 150000;
     int smoothIters = 5;
+    bool metric = false;           // model units are metres
     float observed = 1.f;          // share of the volume seen by the photos
     cv::Vec3d shiftUnits;         // subtracted before scaling to mm
     size_t idx(int x, int y, int z) const { return (size_t(z) * ny + y) * nx + x; }
@@ -183,7 +216,8 @@ struct Volume {
 void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
                    const Settings& s, Progress& p, Volume& vol);
 void extractSurface(const Volume& vol, Mesh& mesh);
-float measuredSurfaceFraction(const Volume& vol, const Mesh& mesh);
+float measuredSurfaceFraction(const Volume& vol, const Mesh& mesh, bool silhouettes);
+void colorizeFromPhotos(const Volume& vol, const Reconstruction& rec, const std::vector<DepthMap>& maps, Mesh& mesh);
 bool saveVolume(const std::string& path, const Volume& vol);
 bool loadVolume(const std::string& path, Volume& vol);
 

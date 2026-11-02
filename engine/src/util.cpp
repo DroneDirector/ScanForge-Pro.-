@@ -42,6 +42,12 @@ int Reconstruction::numRegistered() const {
     return n;
 }
 
+int Reconstruction::numPriors() const {
+    int n = 0;
+    for (const auto& v : views) n += v.hasPrior ? 1 : 0;
+    return n;
+}
+
 void Mesh::bounds(cv::Vec3f& mn, cv::Vec3f& mx) const {
     mn = cv::Vec3f(1e30f, 1e30f, 1e30f);
     mx = cv::Vec3f(-1e30f, -1e30f, -1e30f);
