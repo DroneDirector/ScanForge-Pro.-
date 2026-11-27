@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -8,13 +9,17 @@ import '../services/engine.dart';
 import '../services/job_manager.dart';
 import '../services/project_store.dart';
 import '../theme.dart';
+import 'auto_scan_screen.dart';
 import 'capture_screen.dart';
 import 'live_scan_screen.dart';
 import 'viewer_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
   final ScanProject project;
-  const ProjectScreen({super.key, required this.project});
+
+  /// Starts building the 3D model right away (after Auto scan).
+  final bool startBuild;
+  const ProjectScreen({super.key, required this.project, this.startBuild = false});
 
   @override
   State<ProjectScreen> createState() => _ProjectScreenState();
@@ -30,6 +35,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
     super.initState();
     jobs.addListener(_onJob);
     _wasRunning = jobs.isRunning(p.id);
+    if (widget.startBuild && !p.hasModel && !_wasRunning) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _build();
+      });
+    }
   }
 
   @override
@@ -76,7 +86,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
     final running = jobs.isRunning(p.id);
     if (_wasRunning && !running) {
       final s = jobs.snapshot(p.id);
-      if (s?.state == JobState.done) {
+      if (s?.state == JobState.done && p.mergeInto != null) {
+        // bottom scan finished: combine it with the first scan right away
+        WidgetsBinding.instance.addPostFrameCallback((_) => _combineWithParent());
+      } else if (s?.state == JobState.done) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _openViewer());
       } else if (s?.state == JobState.cancelled) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -171,6 +184,138 @@ class _ProjectScreenState extends State<ProjectScreen> {
     setState(() {});
   }
 
+  // ---------------------------------------------------------------- surface underneath
+  bool _floorBusy = false;
+
+  Future<void> _setRemoveFloor(bool remove) async {
+    p.keepFloor = !remove;
+    setState(() {});
+    if (!p.hasModel) return;
+    final dir = p.dir;
+    if (!hasFloor(dir)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('No surface was found under the object in this model. Rebuild the model to apply.')));
+      }
+      return;
+    }
+    setState(() => _floorBusy = true);
+    final code = await Isolate.run(() => setKeepFloor(dir, !remove));
+    if (!mounted) return;
+    setState(() => _floorBusy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(code == 0
+            ? (remove ? 'Surface underneath removed.' : 'Surface underneath kept.')
+            : 'Could not update the model ($code).')));
+  }
+
+  // ---------------------------------------------------------------- flip and merge
+  Future<void> _scanBottom() async {
+    final child = await ProjectStore.instance.create(name: '${p.name} · bottom');
+    child.quality = p.quality;
+    child.mergeInto = p.id;
+    child.autoScan = true;
+    await child.save();
+    if (!mounted) return;
+    await Navigator.of(context)
+        .push<int>(MaterialPageRoute(builder: (_) => AutoScanScreen(project: child, bottomScan: true)));
+    if (!mounted) return;
+    if (child.photos().isEmpty) {
+      await ProjectStore.instance.delete(child);
+      return;
+    }
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => ProjectScreen(project: child, startBuild: true)));
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _combineWithParent() async {
+    final id = p.mergeInto;
+    if (id == null) return;
+    final all = await ProjectStore.instance.list();
+    final parent = all.where((e) => e.id == id).firstOrNull;
+    if (parent == null || !parent.hasModel) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('The first scan is gone or has no model, so nothing to combine with.')));
+      }
+      return;
+    }
+    await _combine(parent, p);
+  }
+
+  Future<void> _pickAndCombine() async {
+    final all = (await ProjectStore.instance.list()).where((e) => e.id != p.id && e.hasModel).toList();
+    if (!mounted) return;
+    if (all.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No other scan with a 3D model yet.')));
+      return;
+    }
+    final other = await showModalBottomSheet<ScanProject>(
+      context: context,
+      backgroundColor: SfColors.surface,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+          child: ListView(shrinkWrap: true, padding: const EdgeInsets.symmetric(vertical: 12), children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
+              child: Text('Combine with which scan?\nPick a scan of the same object from another side.',
+                  style: TextStyle(fontWeight: FontWeight.w600, height: 1.35)),
+            ),
+            for (final o in all)
+              ListTile(
+                leading: const Icon(Icons.view_in_ar_rounded),
+                title: Text(o.name),
+                onTap: () => Navigator.pop(ctx, o),
+              ),
+          ]),
+        ),
+      ),
+    );
+    if (other == null) return;
+    await _combine(p, other);
+  }
+
+  bool _combining = false;
+
+  /// Lines up the models of two scans of the same object and combines them
+  /// into a new scan. [a] decides which way up the result stands.
+  Future<void> _combine(ScanProject a, ScanProject b) async {
+    if (_combining) return;
+    setState(() => _combining = true);
+    final name = a.name.endsWith(' · bottom') ? a.name.substring(0, a.name.length - 9) : a.name;
+    final out = await ProjectStore.instance.create(name: '$name · complete');
+    out.merged = true;
+    out.mergedFrom = '${a.name} + ${b.name}';
+    out.printer = a.printer;
+    out.exportScale = a.exportScale;
+    await out.save();
+    final da = a.dir, db = b.dir, dout = out.dir;
+    final code = await Isolate.run(() => mergeScans(da, db, dout));
+    if (!mounted) return;
+    setState(() => _combining = false);
+    if (code != 0 || !out.hasModel) {
+      await ProjectStore.instance.delete(out);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Could not combine the scans'),
+          content: Text(code == 12
+              ? 'The two scans do not match well enough. Make sure both show the same object and that '
+                  'both scans include the sides, so they can be lined up.'
+              : 'Something went wrong while combining ($code).'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ProjectScreen(project: out)));
+    if (mounted) setState(() {});
+  }
+
   void _openViewer() {
     if (!p.hasModel || !mounted) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => ViewerScreen(project: p)));
@@ -241,15 +386,111 @@ class _ProjectScreenState extends State<ProjectScreen> {
         if (p.hasCameraPositions)
           Padding(
             padding: const EdgeInsets.only(top: 4, bottom: 4),
-            child: Row(children: const [
-              Icon(Icons.view_in_ar_rounded, size: 16, color: SfColors.good),
-              SizedBox(width: 6),
+            child: Row(children: [
+              Icon(p.autoScan ? Icons.blur_on_rounded : Icons.view_in_ar_rounded, size: 16, color: SfColors.good),
+              const SizedBox(width: 6),
               Expanded(
-                child: Text('Live Scan · camera positions and real size are known',
-                    style: TextStyle(color: SfColors.good, fontSize: 13)),
+                child: Text(
+                    p.autoScan
+                        ? 'Auto scan · shape from the phone\'s depth, real size'
+                        : 'Live Scan · camera positions and real size are known',
+                    style: const TextStyle(color: SfColors.good, fontSize: 13)),
               ),
             ]),
           ),
+        if (p.merged) ...[
+          const SizedBox(height: 8),
+          Card(
+            color: SfColors.surfaceHigh,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(children: [
+                const Icon(Icons.join_full_rounded, color: SfColors.accent),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('Combined from two scans: ${p.mergedFrom ?? ''}',
+                      style: const TextStyle(height: 1.35)),
+                ),
+              ]),
+            ),
+          ),
+        ],
+        if (p.hasModel && !running && !p.merged) ..._modelTools(),
+        if (_combining)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Row(children: [
+              SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
+              SizedBox(width: 12),
+              Expanded(child: Text('Lining up and combining the scans…')),
+            ]),
+          ),
+        if (!p.merged) ..._photosAndBuild(photos, running, snap),
+      ]),
+    );
+  }
+
+  List<Widget> _modelTools() {
+    return [
+      const SizedBox(height: 6),
+      Card(
+        child: SwitchListTile(
+          secondary: _floorBusy
+              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+              : const Icon(Icons.layers_clear_rounded),
+          title: const Text('Remove the surface underneath'),
+          subtitle: const Text('Cuts away the table or floor and closes the bottom, so only the object is left'),
+          value: !p.keepFloor,
+          activeColor: SfColors.accent,
+          onChanged: _floorBusy ? null : _setRemoveFloor,
+        ),
+      ),
+      if (p.mergeInto == null)
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Row(children: [
+                Icon(Icons.flip_rounded, color: SfColors.accent),
+                SizedBox(width: 10),
+                Text('Scan the bottom too', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              ]),
+              const SizedBox(height: 6),
+              const Text('Turn the object over and scan it again. Both scans are lined up and combined into one '
+                  'complete model, bottom included.',
+                  style: TextStyle(color: SfColors.textDim, fontSize: 13, height: 1.35)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 8, children: [
+                FilledButton.tonalIcon(
+                  onPressed: _combining ? null : _scanBottom,
+                  icon: const Icon(Icons.blur_on_rounded),
+                  label: const Text('Flip & scan bottom'),
+                ),
+                TextButton(
+                  onPressed: _combining ? null : _pickAndCombine,
+                  child: const Text('Combine with another scan…'),
+                ),
+              ]),
+            ]),
+          ),
+        )
+      else
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.join_full_rounded, color: SfColors.accent),
+            title: const Text('Bottom scan'),
+            subtitle: const Text('Combine it with the first scan into one complete model'),
+            trailing: FilledButton(
+              onPressed: _combining ? null : _combineWithParent,
+              child: const Text('Combine'),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _photosAndBuild(List<File> photos, bool running, JobSnapshot? snap) {
+    return [
         const SizedBox(height: 8),
         // ---- photos
         Text('Photos (${photos.length})', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
@@ -351,8 +592,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
         ],
         const SizedBox(height: 26),
         const _Tips(),
-      ]),
-    );
+    ];
   }
 
   String _qualityHint(int q) {

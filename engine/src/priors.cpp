@@ -6,6 +6,10 @@
 //              world -> camera (x right, y down, z forward), metres.
 //   gps.txt    per photo "<file> latitude longitude altitude"
 //   masks/<photo name without extension>.png   white = object
+//   depth.txt  per photo "<file> fx fy cx cy w h": phone depth map
+//              depth/<photo name without extension>.d16 (uint32 w, uint32 h,
+//              then w*h uint16 millimetres, 0 = unknown), same pose as the photo
+//   options.txt "keep_floor 1" keeps the surface the object stands on
 #include "sf_internal.h"
 
 #include <cmath>
@@ -103,6 +107,34 @@ void loadPriors(Reconstruction& rec, const std::string& dir, Progress& p) {
             p.log(fmt("priors: scan box %.0f x %.0f x %.0f mm", w * 1000, d * 1000, h * 1000));
         }
     }
+    {
+        std::ifstream f(dir + sep + "depth.txt");
+        std::string line;
+        while (std::getline(f, line)) {
+            std::istringstream ss(line);
+            std::string name;
+            double fx, fy, cx, cy;
+            int w, h;
+            if (!(ss >> name >> fx >> fy >> cx >> cy >> w >> h) || w <= 0 || h <= 0) continue;
+            auto it = byName.find(name);
+            if (it == byName.end()) continue;
+            std::string dp = dir + sep + "depth/" + stem(name) + ".d16";
+            if (!fileExists(dp)) continue;
+            View& v = *it->second;
+            v.depthPath = dp;
+            v.depthK = cv::Matx33d(fx, 0, cx, 0, fy, cy, 0, 0, 1);
+            v.depthW = w;
+            v.depthH = h;
+            ++rec.phoneDepth;
+        }
+    }
+    {
+        std::ifstream f(dir + sep + "options.txt");
+        std::string key;
+        int val;
+        while (f >> key >> val)
+            if (key == "keep_floor") rec.keepFloor = val != 0;
+    }
     rec.turntable = fileExists(dir + sep + "turntable.txt");
     if (rec.turntable) p.log("priors: turntable scan");
     for (auto& v : rec.views) {
@@ -114,6 +146,8 @@ void loadPriors(Reconstruction& rec, const std::string& dir, Progress& p) {
     }
     if (poses || gps || masks)
         p.log(fmt("priors: %d camera positions, %d GPS positions, %d object masks", poses, gps, masks));
+    if (rec.phoneDepth) p.log(fmt("priors: %d phone depth maps", rec.phoneDepth));
+    if (rec.keepFloor) p.log("priors: keeping the surface under the object");
 }
 
 // Box corners in world coordinates (Live Scan world: y is up).

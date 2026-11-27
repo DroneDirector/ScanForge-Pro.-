@@ -43,7 +43,7 @@ import kotlin.math.sqrt
  * Photos go to <project>/photos, camera positions to <project>/poses.txt and
  * AI object outlines to <project>/masks, which the 3D engine then uses.
  */
-class LiveScanSession(private val context: Context, private val emit: (Map<String, Any?>) -> Unit) {
+class LiveScanSession(private val context: Context, private val emit: (Map<String, Any?>) -> Unit) : ArRenderSession {
     var session: Session? = null
         private set
     val background = BackgroundRenderer()
@@ -130,11 +130,11 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         }
     }
 
-    fun resume() {
+    override fun resume() {
         try { session?.resume() } catch (e: Throwable) { Log.w(TAG, "resume failed", e) }
     }
 
-    fun pause() {
+    override fun pause() {
         try { session?.pause() } catch (_: Throwable) {}
     }
 
@@ -203,12 +203,12 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
     }
 
     // ------------------------------------------------------------------ GL
-    fun onSurfaceCreated() {
+    override fun onSurfaceCreated() {
         background.create()
         session?.setCameraTextureName(background.textureId)
     }
 
-    fun onSurfaceChanged(w: Int, h: Int, displayRotation: Int) {
+    override fun onSurfaceChanged(w: Int, h: Int, displayRotation: Int) {
         viewW = w
         viewH = h
         rotation = displayRotation
@@ -216,7 +216,7 @@ class LiveScanSession(private val context: Context, private val emit: (Map<Strin
         session?.setDisplayGeometry(rotation, w, h)
     }
 
-    fun onDrawFrame() {
+    override fun onDrawFrame() {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val s = session ?: return
         if (stopped) return

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -30,6 +31,30 @@ static std::string joinPath(const std::string& dir, const char* name) {
     if (dir.empty()) return name;
     char last = dir.back();
     return (last == '/' || last == '\\') ? dir + name : dir + "/" + name;
+}
+
+// floor.txt: the two floor cuts (model units), so the surface under the object
+// can be kept or removed later without scanning again.
+static void writeFloorFile(const std::string& dir, const Volume& vol) {
+    if (vol.floorCutZ < -1e29f || vol.floorSlabZ < -1e29f) {
+        std::remove(joinPath(dir, "floor.txt").c_str());
+        return;
+    }
+    std::ofstream f(joinPath(dir, "floor.txt"));
+    f.precision(9);
+    f << "cut " << vol.floorCutZ << "\nslab " << vol.floorSlabZ << "\n";
+}
+
+static bool readFloorFile(const std::string& dir, float& cut, float& slab) {
+    std::ifstream f(joinPath(dir, "floor.txt"));
+    std::string k;
+    float val;
+    bool hc = false, hs = false;
+    while (f >> k >> val) {
+        if (k == "cut") { cut = val; hc = true; }
+        if (k == "slab") { slab = val; hs = true; }
+    }
+    return hc && hs;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +121,18 @@ static void runPipeline(sf_job* job) {
         p.set(SF_STAGE_CAMERAS, 0.f, "Solving camera positions");
         bool solved = false;
         if (rec.posed()) solved = runPosedSfM(rec, s, p);
+        if (!solved && rec.posed() && rec.phoneDepth >= 3) {
+            // Auto scan of a plain object: too little detail to refine the
+            // camera positions, but the phone's own positions and depth are enough
+            for (auto& v : rec.views) {
+                v.registered = v.hasPrior;
+                if (v.hasPrior) { v.R = v.priorR; v.t = v.priorT; }
+            }
+            for (auto& t : rec.tracks) t.valid = false;
+            rec.metric = true;
+            solved = rec.numRegistered() >= 3;
+            p.log(fmt("cameras: using %d phone positions directly", rec.numRegistered()));
+        }
         if (!solved) {
             for (auto& v : rec.views) v.registered = false;
             for (auto& t : rec.tracks) t.valid = false;
@@ -122,11 +159,13 @@ static void runPipeline(sf_job* job) {
         p.set(SF_STAGE_DEPTH, 0.f, "Measuring depth");
         std::vector<DepthMap> maps;
         computeDepthMaps(rec, s, p, maps);
+        if (rec.phoneDepth > 0) addPhoneDepthMaps(rec, p, maps);
         if (maps.empty()) throw std::runtime_error("No depth could be measured from the photos.");
 
         p.set(SF_STAGE_FUSION, 0.f, "Building the 3D volume");
         Volume vol;
         fuseDepthMaps(rec, maps, s, p, vol);
+        writeFloorFile(job->dir, vol);
         bool silhouettes = false;
         for (auto& dm : maps) silhouettes = silhouettes || !dm.mask.empty();
 
@@ -240,6 +279,51 @@ SF_API int sf_remesh(const char* project_dir, float floor_mm, int smooth) {
         if (mesh.f.empty()) return 2;
         if (!savePLY(joinPath(dir, "mesh.ply"), mesh)) return 3;
         saveVolume(joinPath(dir, "volume.bin"), vol);
+        return 0;
+    } catch (...) {
+        return 4;
+    }
+}
+
+SF_API int sf_set_keep_floor(const char* project_dir, int keep) {
+    try {
+        std::string dir = project_dir ? project_dir : "";
+        {
+            std::ofstream o(joinPath(dir, "options.txt"));
+            o << "keep_floor " << (keep ? 1 : 0) << "\n";
+        }
+        float cut = 0, slab = 0;
+        if (!readFloorFile(dir, cut, slab)) return 5;  // no floor was found in this scan
+        Volume vol;
+        if (!loadVolume(joinPath(dir, "volume.bin"), vol)) return 1;
+        vol.floorZ = vol.autoFloorZ = keep ? slab : cut;
+        Mesh mesh;
+        buildMesh(vol, mesh, true);
+        if (mesh.f.empty()) return 2;
+        if (!savePLY(joinPath(dir, "mesh.ply"), mesh)) return 3;
+        saveVolume(joinPath(dir, "volume.bin"), vol);
+        return 0;
+    } catch (...) {
+        return 4;
+    }
+}
+
+SF_API int sf_has_floor(const char* project_dir) {
+    float cut = 0, slab = 0;
+    return readFloorFile(project_dir ? project_dir : "", cut, slab) ? 1 : 0;
+}
+
+SF_API int sf_merge(const char* dir_a, const char* dir_b, const char* out_dir) {
+    try {
+        Mesh a, b, out;
+        if (!loadPLY(joinPath(dir_a ? dir_a : "", "mesh.ply"), a) || a.f.empty()) return 1;
+        if (!loadPLY(joinPath(dir_b ? dir_b : "", "mesh.ply"), b) || b.f.empty()) return 2;
+        std::string log;
+        int r = mergeMeshes(a, b, out, log);
+        std::string od = out_dir ? out_dir : "";
+        { std::ofstream l(joinPath(od, "log.txt"), std::ios::app); l << log; }
+        if (r != 0) return 10 + r;
+        if (!savePLY(joinPath(od, "mesh.ply"), out)) return 3;
         return 0;
     } catch (...) {
         return 4;

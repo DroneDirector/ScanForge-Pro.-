@@ -150,3 +150,65 @@ class LiveScan {
     return ((r?['photos'] as int?) ?? 0, (r?['rotation'] as int?) ?? 90);
   }
 }
+
+/// Live state of an Auto scan (shape from the phone's depth).
+class AutoScanState extends ChangeNotifier {
+  bool tracking = false;
+  String hint = 'Move the phone slowly to start tracking';
+  double percent = 0; // 0..1, never goes down
+  int photos = 0;
+  int points = 0;
+  bool floorFound = false;
+  bool depth = false;
+  bool removeFloor = true;
+
+  void setRemoveFloor(bool on) {
+    removeFloor = on;
+    notifyListeners();
+  }
+
+  void apply(Map<dynamic, dynamic> e) {
+    if (e['type'] != 'auto') return;
+    tracking = e['tracking'] == true;
+    hint = e['hint'] as String? ?? hint;
+    percent = (e['percent'] as num?)?.toDouble() ?? percent;
+    photos = (e['photos'] as int?) ?? photos;
+    points = (e['points'] as int?) ?? points;
+    floorFound = e['floor'] == true;
+    depth = e['depth'] == true;
+    notifyListeners();
+  }
+}
+
+/// Talks to the native Auto scan session.
+class AutoScan {
+  static const _ch = MethodChannel('scanforge/live');
+  static const _events = EventChannel('scanforge/live/events');
+
+  StreamSubscription? _sub;
+  final AutoScanState state = AutoScanState();
+
+  /// 'ok', 'no_depth' (phone has no depth support) or an error.
+  Future<String> open(String projectDir, {required bool keepFloor}) async {
+    state.removeFloor = !keepFloor;
+    _sub = _events.receiveBroadcastStream().listen((e) {
+      if (e is Map) state.apply(e);
+    });
+    return await _ch.invokeMethod<String>('openAuto', {'project': projectDir, 'keepFloor': keepFloor}) ?? 'error';
+  }
+
+  Future<void> setRemoveFloor(bool on) async {
+    state.setRemoveFloor(on);
+    await _ch.invokeMethod('autoFloor', {'remove': on});
+  }
+
+  Future<void> restart() => _ch.invokeMethod('autoRestart');
+
+  /// Returns the number of photos saved and the photo rotation in degrees.
+  Future<(int, int)> finish() async {
+    final r = await _ch.invokeMethod<Map>('autoFinish');
+    await _sub?.cancel();
+    _sub = null;
+    return ((r?['photos'] as int?) ?? 0, (r?['rotation'] as int?) ?? 90);
+  }
+}

@@ -19,6 +19,13 @@ class ScanProject {
   bool liveScan;
   /// Rotation (degrees) to show Live Scan photos upright.
   int photoRotation;
+  /// Made with Auto scan (shape from the phone's depth).
+  bool autoScan;
+  /// Bottom scan of another project (flip-and-merge): that project's id.
+  String? mergeInto;
+  /// Combined from two scans (no photos of its own).
+  bool merged;
+  String? mergedFrom;
 
   ScanProject({
     required this.id,
@@ -32,6 +39,10 @@ class ScanProject {
     this.printer = 'x1',
     this.liveScan = false,
     this.photoRotation = 0,
+    this.autoScan = false,
+    this.mergeInto,
+    this.merged = false,
+    this.mergedFrom,
   });
 
   String get photosDir => p.join(dir, 'photos');
@@ -40,10 +51,23 @@ class ScanProject {
   String get jsonPath => p.join(dir, 'project.json');
   String get gpsPath => p.join(dir, 'gps.txt');
   bool get hasCameraPositions => File(p.join(dir, 'poses.txt')).existsSync();
+  String get optionsPath => p.join(dir, 'options.txt');
+
+  /// Keep the surface the object stands on (otherwise it is removed).
+  bool get keepFloor {
+    final f = File(optionsPath);
+    if (!f.existsSync()) return false;
+    return RegExp(r'keep_floor\s+1').hasMatch(f.readAsStringSync());
+  }
+
+  set keepFloor(bool keep) {
+    Directory(dir).createSync(recursive: true);
+    File(optionsPath).writeAsStringSync('keep_floor ${keep ? 1 : 0}\n');
+  }
 
   /// Quarter turns needed to show a photo upright.
   int quarterTurnsFor(String path) =>
-      p.basename(path).startsWith('LIVE_') ? (photoRotation ~/ 90) % 4 : 0;
+      p.basename(path).startsWith('LIVE_') || p.basename(path).startsWith('AUTO_') ? (photoRotation ~/ 90) % 4 : 0;
   bool get hasModel => File(meshPath).existsSync();
 
   List<File> photos() {
@@ -69,6 +93,10 @@ class ScanProject {
         'printer': printer,
         'liveScan': liveScan,
         'photoRotation': photoRotation,
+        'autoScan': autoScan,
+        'mergeInto': mergeInto,
+        'merged': merged,
+        'mergedFrom': mergedFrom,
       };
 
   static ScanProject fromJson(String dir, Map<String, dynamic> j) => ScanProject(
@@ -83,6 +111,10 @@ class ScanProject {
         printer: j['printer'] as String? ?? 'x1',
         liveScan: j['liveScan'] as bool? ?? false,
         photoRotation: (j['photoRotation'] as num?)?.toInt() ?? 0,
+        autoScan: j['autoScan'] as bool? ?? false,
+        mergeInto: j['mergeInto'] as String?,
+        merged: j['merged'] as bool? ?? false,
+        mergedFrom: j['mergedFrom'] as String?,
       );
 
   Future<void> save() async {

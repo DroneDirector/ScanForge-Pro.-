@@ -93,6 +93,10 @@ struct View {
     bool hasGps = false;
     cv::Vec3d gps = {0, 0, 0};           // latitude, longitude (deg), altitude (m)
     std::string maskPath;
+    // Optional depth map measured by the phone (Auto scan): metres, uint16 mm file
+    std::string depthPath;
+    cv::Matx33d depthK = cv::Matx33d::eye();
+    int depthW = 0, depthH = 0;
 
     cv::Vec3d center() const { return -(R.t() * t); }
     cv::Vec3d axis() const { return cv::Vec3d(R(2, 0), R(2, 1), R(2, 2)); }
@@ -135,6 +139,8 @@ struct Reconstruction {
     std::vector<cv::Vec3d> boxCorners() const;
     bool upKnown = false;
     cv::Vec3d up = {0, 0, 1};
+    bool keepFloor = false;              // keep the surface the object stands on
+    int phoneDepth = 0;                  // photos with a phone depth map
     int numRegistered() const;
     int numPriors() const;
     bool posed() const { return numPriors() * 2 >= int(views.size()) && numPriors() >= 3; }
@@ -194,9 +200,12 @@ struct DepthMap {
     cv::Mat color;        // CV_8UC3 BGR, same size
     cv::Mat mask;         // CV_8U, 255 = object (empty if no mask)
     cv::Matx33d K;        // intrinsics at depth resolution (undistorted)
+    float weight = 1.f;   // fusion weight (phone depth counts less than photo depth)
 };
 void computeDepthMaps(const Reconstruction& rec, const Settings& s, Progress& p,
                       std::vector<DepthMap>& out);
+// Adds the depth maps measured by the phone during Auto scan.
+int addPhoneDepthMaps(const Reconstruction& rec, Progress& p, std::vector<DepthMap>& out);
 
 // fusion.cpp
 struct Volume {
@@ -211,6 +220,9 @@ struct Volume {
     std::vector<uint16_t> colorW;
     float floorZ = -1e30f;        // model z below which space is empty
     float autoFloorZ = -1e30f;
+    // detected floor (not saved in volume.bin; see floor.txt)
+    float floorCutZ = -1e30f;     // cut that removes the floor
+    float floorSlabZ = -1e30f;    // cut that keeps a slab of the floor
     double mmPerUnit = 1.0;
     int targetFaces = 150000;
     int smoothIters = 5;
@@ -240,6 +252,11 @@ bool savePointsPLY(const std::string& path, const std::vector<cv::Vec3f>& pts,
                    const std::vector<cv::Vec3b>& cols);
 void finalizeToMillimetres(Mesh& m, Volume& vol, bool firstTime);
 void decimateForDisplay(const Mesh& in, Mesh& out, int maxFaces);
+
+// merge.cpp
+// Lines up two closed meshes (mm) of the same object, e.g. scanned standing
+// and then flipped, and combines them. Returns 0 on success.
+int mergeMeshes(const Mesh& a, const Mesh& b, Mesh& out, std::string& log);
 
 // export.cpp
 bool exportSTL(const std::string& path, const Mesh& m, float scale, const std::string& name);

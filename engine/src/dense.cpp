@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <map>
@@ -469,6 +470,104 @@ void computeDepthMaps(const Reconstruction& rec, const Settings& s, Progress& p,
         out.push_back(std::move(maps[i]));
     }
     p.log(fmt("depth: %d depth maps, %d valid depth samples", int(out.size()), totalValid));
+}
+
+
+// ---------------------------------------------------------------------------
+// Phone depth (Auto scan)
+// ---------------------------------------------------------------------------
+static bool readD16(const std::string& path, cv::Mat& depthM) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    uint32_t wh[2] = {0, 0};
+    bool ok = std::fread(wh, sizeof(uint32_t), 2, f) == 2 && wh[0] > 0 && wh[1] > 0 && wh[0] < 8192 && wh[1] < 8192;
+    cv::Mat raw;
+    if (ok) {
+        raw.create(int(wh[1]), int(wh[0]), CV_16U);
+        ok = std::fread(raw.data, 2, raw.total(), f) == raw.total();
+    }
+    std::fclose(f);
+    if (!ok) return false;
+    raw.convertTo(depthM, CV_32F, 0.001);
+    return true;
+}
+
+int addPhoneDepthMaps(const Reconstruction& rec, Progress& p, std::vector<DepthMap>& out) {
+    // keep photo order; use at most ~120 phone maps, evenly spaced
+    std::vector<int> idx;
+    for (int i = 0; i < int(rec.views.size()); ++i)
+        if (rec.views[i].registered && !rec.views[i].depthPath.empty()) idx.push_back(i);
+    if (idx.empty()) return 0;
+    const int maxMaps = 120;
+    std::vector<int> use;
+    if (int(idx.size()) <= maxMaps) use = idx;
+    else
+        for (int k = 0; k < maxMaps; ++k) use.push_back(idx[size_t(double(k) * idx.size() / maxMaps)]);
+
+    std::vector<DepthMap> maps(use.size());
+    std::vector<char> ok(use.size(), 0);
+    parallelFor(0, int(use.size()), [&](int k) {
+        const View& v = rec.views[use[k]];
+        DepthMap dm;
+        dm.view = use[k];
+        if (!readD16(v.depthPath, dm.depth)) return;
+        // scale the intrinsics if the file size differs from depth.txt
+        cv::Matx33d K = v.depthK;
+        if (v.depthW > 0 && dm.depth.cols != v.depthW) {
+            double sx = double(dm.depth.cols) / v.depthW, sy = double(dm.depth.rows) / v.depthH;
+            K(0, 0) *= sx; K(0, 2) *= sx; K(1, 1) *= sy; K(1, 2) *= sy;
+        }
+        // drop far, near and edge ("flying") pixels
+        cv::Mat d = dm.depth;
+        cv::Mat clean = cv::Mat::zeros(d.size(), CV_32F);
+        for (int y = 1; y < d.rows - 1; ++y)
+            for (int x = 1; x < d.cols - 1; ++x) {
+                float z = d.at<float>(y, x);
+                if (z < 0.08f || z > 3.0f) continue;
+                float mx = 0;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        float n = d.at<float>(y + dy, x + dx);
+                        if (n <= 0) { mx = 1e9f; continue; }
+                        mx = std::max(mx, std::abs(n - z));
+                    }
+                if (mx > 0.04f * z) continue;
+                clean.at<float>(y, x) = z;
+            }
+        dm.depth = clean;
+        // colours: same camera centre, so the photo maps onto the depth image
+        // with the homography Kphoto * Kdepth^-1
+        cv::Mat photo = cv::imread(v.path, cv::IMREAD_COLOR);
+        if (photo.empty()) return;
+        double pw = rec.priorK.width > 0 ? rec.priorK.width : photo.cols;
+        double sc = photo.cols / pw;
+        cv::Matx33d Kp(rec.priorK.fx * sc, 0, rec.priorK.cx * sc, 0, rec.priorK.fy * sc, rec.priorK.cy * sc, 0, 0, 1);
+        if (!rec.priorK.valid) {
+            Kp = cv::Matx33d(rec.K.f * photo.cols / std::max(1, v.width), 0, photo.cols * 0.5, 0,
+                             rec.K.f * photo.cols / std::max(1, v.width), photo.rows * 0.5, 0, 0, 1);
+        }
+        cv::Matx33d H = Kp * K.inv();  // depth pixel -> photo pixel
+        cv::warpPerspective(photo, dm.color, cv::Mat(H), d.size(), cv::INTER_AREA | cv::WARP_INVERSE_MAP,
+                            cv::BORDER_REPLICATE);
+        if (!v.maskPath.empty()) {
+            cv::Mat m = cv::imread(v.maskPath, cv::IMREAD_GRAYSCALE);
+            if (!m.empty()) {
+                cv::Matx33d Km = Kp;
+                double ms = double(m.cols) / photo.cols;
+                Km(0, 0) *= ms; Km(0, 2) *= ms; Km(1, 1) *= ms; Km(1, 2) *= ms;
+                cv::warpPerspective(m, dm.mask, cv::Mat(Km * K.inv()), d.size(), cv::INTER_NEAREST | cv::WARP_INVERSE_MAP);
+            }
+        }
+        dm.K = K;
+        dm.weight = 0.5f;
+        maps[k] = std::move(dm);
+        ok[k] = 1;
+    });
+    int n = 0;
+    for (size_t k = 0; k < maps.size(); ++k)
+        if (ok[k]) { out.push_back(std::move(maps[k])); ++n; }
+    p.log(fmt("depth: %d phone depth maps added", n));
+    return n;
 }
 
 }  // namespace sf

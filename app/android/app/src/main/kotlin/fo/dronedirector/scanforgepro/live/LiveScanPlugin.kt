@@ -15,12 +15,13 @@ import io.flutter.plugin.common.MethodChannel
 /** Connects the Flutter Live Scan screen with ARCore. */
 class LiveScanPlugin(private val activity: Activity, engine: FlutterEngine) {
     private var session: LiveScanSession? = null
+    private var autoSession: AutoScanSession? = null
     private var sink: EventChannel.EventSink? = null
     private var pendingPermission: MethodChannel.Result? = null
     private val main = Handler(Looper.getMainLooper())
 
     init {
-        engine.platformViewsController.registry.registerViewFactory("scanforge/arview", LiveScanViewFactory { session })
+        engine.platformViewsController.registry.registerViewFactory("scanforge/arview", LiveScanViewFactory { session ?: autoSession })
         EventChannel(engine.dartExecutor.binaryMessenger, "scanforge/live/events").setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { sink = events }
@@ -57,10 +58,38 @@ class LiveScanPlugin(private val activity: Activity, engine: FlutterEngine) {
                 }
                 "open" -> {
                     session?.let { Thread { it.finish() }.start() }
+                    autoSession?.let { Thread { it.finish() }.start() }
+                    autoSession = null
                     val s = LiveScanSession(activity) { m -> sink?.success(m) }
                     val status = s.open(call.argument<String>("project") ?: "")
                     session = if (status.startsWith("ok")) s else null
                     result.success(status)
+                }
+                "openAuto" -> {
+                    session?.let { Thread { it.finish() }.start() }
+                    session = null
+                    autoSession?.let { Thread { it.finish() }.start() }
+                    val s = AutoScanSession(activity) { m -> sink?.success(m) }
+                    val status = s.open(call.argument<String>("project") ?: "", call.argument<Boolean>("keepFloor") ?: false)
+                    autoSession = if (status == "ok") s else null
+                    result.success(status)
+                }
+                "autoFloor" -> {
+                    autoSession?.setRemoveFloor(call.argument<Boolean>("remove") ?: true)
+                    result.success(null)
+                }
+                "autoRestart" -> { autoSession?.restart(); result.success(null) }
+                "autoFinish" -> {
+                    val s = autoSession
+                    autoSession = null
+                    if (s == null) {
+                        result.success(mapOf("photos" to 0, "rotation" to 90, "percent" to 0.0))
+                    } else {
+                        Thread {
+                            val r = s.finish()
+                            main.post { result.success(r) }
+                        }.start()
+                    }
                 }
                 "tap" -> {
                     session?.tap((call.argument<Double>("x") ?: 0.0).toFloat(), (call.argument<Double>("y") ?: 0.0).toFloat(),

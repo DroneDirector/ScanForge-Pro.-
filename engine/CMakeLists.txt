@@ -23,6 +23,7 @@ set(SF_SOURCES
     src/fusion.cpp
     src/mesh.cpp
     src/export.cpp
+    src/merge.cpp
     src/api.cpp
 )
 
