@@ -12,7 +12,7 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /** The AR camera view shown inside the Flutter Live Scan screen. */
-class LiveScanView(private val context: Context, private val live: LiveScanSession) : PlatformView, GLSurfaceView.Renderer {
+class LiveScanView(private val context: Context, private val live: ArRenderSession) : PlatformView, GLSurfaceView.Renderer {
     private val surface = GLSurfaceView(context).apply {
         preserveEGLContextOnPause = true
         setEGLContextClientVersion(2)
@@ -49,10 +49,19 @@ class LiveScanView(private val context: Context, private val live: LiveScanSessi
     }
 }
 
-class LiveScanViewFactory(private val sessionProvider: () -> LiveScanSession?) :
+/** What the AR camera view needs from a scan session (Live Scan or Auto scan). */
+interface ArRenderSession {
+    fun resume()
+    fun pause()
+    fun onSurfaceCreated()
+    fun onSurfaceChanged(w: Int, h: Int, displayRotation: Int)
+    fun onDrawFrame()
+}
+
+class LiveScanViewFactory(private val sessionProvider: () -> ArRenderSession?) :
     PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
-        val s = sessionProvider() ?: throw IllegalStateException("Live Scan session not open")
+        val s = sessionProvider() ?: throw IllegalStateException("AR scan session not open")
         return LiveScanView(context, s)
     }
 }

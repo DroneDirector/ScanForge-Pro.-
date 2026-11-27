@@ -11,6 +11,7 @@ import '../widgets/update_dialog.dart';
 import '../theme.dart';
 import 'settings_screen.dart';
 import 'capture_screen.dart';
+import 'auto_scan_screen.dart';
 import 'live_scan_screen.dart';
 import 'turntable_screen.dart';
 import 'project_screen.dart';
@@ -77,6 +78,20 @@ class _HomeScreenState extends State<HomeScreen> {
     _reload();
   }
 
+  Future<void> _newAutoScan() async {
+    final proj = await ProjectStore.instance.create();
+    if (!mounted) return;
+    await Navigator.of(context).push<int>(MaterialPageRoute(builder: (_) => AutoScanScreen(project: proj)));
+    if (!mounted) return;
+    if (proj.photos().isEmpty) {
+      await ProjectStore.instance.delete(proj);
+      _reload();
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ProjectScreen(project: proj, startBuild: true)));
+    _reload();
+  }
+
   Future<void> _newLiveScan() async {
     final proj = await ProjectStore.instance.create();
     if (!mounted) return;
@@ -108,9 +123,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showNewSheet() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: SfColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (ctx) => NewScanSheet(
+        onAutoScan: () {
+          Navigator.pop(ctx);
+          _newAutoScan();
+        },
         onLiveScan: () {
           Navigator.pop(ctx);
           _newLiveScan();
@@ -211,18 +231,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
 /// The "New scan" choices (Live Scan, camera, import).
 class NewScanSheet extends StatelessWidget {
-  final VoidCallback onLiveScan, onTurntable, onCamera, onImport;
+  final VoidCallback onAutoScan, onLiveScan, onTurntable, onCamera, onImport;
   const NewScanSheet(
-      {super.key, required this.onLiveScan, required this.onTurntable, required this.onCamera, required this.onImport});
+      {super.key,
+      required this.onAutoScan,
+      required this.onLiveScan,
+      required this.onTurntable,
+      required this.onCamera,
+      required this.onImport});
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('New scan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
           const SizedBox(height: 14),
+          _SheetOption(
+            icon: Icons.blur_on_rounded,
+            title: 'Auto scan',
+            subtitle: 'Just move around the object: the shape builds live from depth and photos add the real '
+                'colours. Nothing to tap or select',
+            badge: 'NEW',
+            onTap: onAutoScan,
+          ),
+          const SizedBox(height: 10),
           _SheetOption(
             icon: Icons.view_in_ar_rounded,
             title: 'Live Scan',
@@ -236,7 +270,6 @@ class NewScanSheet extends StatelessWidget {
             icon: Icons.rotate_right_rounded,
             title: 'Turntable',
             subtitle: 'Phone on a stand, the object turns on a turntable or lazy Susan. Best for small objects',
-            badge: 'NEW',
             onTap: onTurntable,
           ),
           const SizedBox(height: 10),

@@ -163,7 +163,8 @@ void main() {
               color: SfColors.surface,
               borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
             ),
-            child: NewScanSheet(onLiveScan: () {}, onTurntable: () {}, onCamera: () {}, onImport: () {}),
+            child: NewScanSheet(
+                onAutoScan: () {}, onLiveScan: () {}, onTurntable: () {}, onCamera: () {}, onImport: () {}),
           ),
         ]),
       ),

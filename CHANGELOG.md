@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.0 (alpha), 2026-11-27
+- **Auto scan** (new first option in New scan): no points to collect and nothing to tap. Just move
+  around the object; the phone's depth builds the shape live and sharp photos are taken
+  automatically, with the phone's position and depth saved for each one.
+- **See what's scanned**: the live surface is drawn over the camera with a glowing light sweep
+  over the part being scanned. Red = not scanned yet, yellow = partly, green = done, and fully
+  captured areas switch to their real photo colours. A percentage that never drops, plus hints
+  that point to what's missing ("Move to the left around the object", "Raise the phone and look
+  down at the top", "Move lower to scan underneath").
+- **Free movement**: height and distance can change all the time; every depth frame is placed by
+  AR tracking, close passes add detail and the sharpest data wins.
+- **Remove the surface underneath** (on/off): cuts away the table or floor the object stands on
+  and closes the bottom, or keeps a thin slab of it. Switch it before scanning (it shows faded in
+  the live view), on the project screen afterwards (no rescan needed), with a default in Settings.
+- **Flip & scan bottom**: turn the object over and scan again; both scans are lined up
+  automatically and combined into one complete, closed model. Any two scans of the same object can
+  also be combined ("Combine with another scan…").
+- 3D engine: uses the phone's depth together with the photos (so plain objects with
+  little texture still get their shape), keeps edges and corners sharp, and paints the colours
+  from the photos.
+
 ## 1.2.0 (alpha), 2026-11-02
 - **Live Scan with scan box and dome** (AR): tap the object to place a box (fitted with AI or
   depth), adjust width, depth, height and rotation with sliders, tap the table to move it, then

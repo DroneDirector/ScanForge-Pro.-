@@ -40,6 +40,12 @@ typedef _MeshRender = int Function(Pointer<Void>, double, double, double, double
 typedef _MeshExportC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32, Float, Float, Float, Pointer<Utf8>);
 typedef _MeshExport = int Function(Pointer<Void>, Pointer<Utf8>, int, double, double, double, Pointer<Utf8>);
 typedef _VersionC = Pointer<Utf8> Function();
+typedef _DirIntC = Int32 Function(Pointer<Utf8>, Int32);
+typedef _DirInt = int Function(Pointer<Utf8>, int);
+typedef _DirC = Int32 Function(Pointer<Utf8>);
+typedef _Dir = int Function(Pointer<Utf8>);
+typedef _MergeC = Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _Merge = int Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 
 final _jobStart = _lib.lookupFunction<_JobStartC, _JobStart>('sf_job_start');
 final _jobState = _lib.lookupFunction<_JobIntC, _JobInt>('sf_job_state');
@@ -58,6 +64,9 @@ final _meshWatertight = _lib.lookupFunction<_JobIntC, _JobInt>('sf_mesh_is_water
 final _meshRender = _lib.lookupFunction<_MeshRenderC, _MeshRender>('sf_mesh_render');
 final _meshExport = _lib.lookupFunction<_MeshExportC, _MeshExport>('sf_mesh_export');
 final _version = _lib.lookupFunction<_VersionC, _VersionC>('sf_version');
+final _setKeepFloor = _lib.lookupFunction<_DirIntC, _DirInt>('sf_set_keep_floor');
+final _hasFloor = _lib.lookupFunction<_DirC, _Dir>('sf_has_floor');
+final _merge = _lib.lookupFunction<_MergeC, _Merge>('sf_merge');
 
 String engineVersion() => _version().toDartString();
 
@@ -140,6 +149,40 @@ int remesh(String projectDir, double floorMm, {int smooth = -1}) {
     return _remesh(d, floorMm, smooth);
   } finally {
     calloc.free(d);
+  }
+}
+
+/// Keeps or removes the surface the object stands on and rebuilds the mesh.
+/// 0 = done, 5 = no surface was found under the object in this scan.
+int setKeepFloor(String projectDir, bool keep) {
+  final d = projectDir.toNativeUtf8();
+  try {
+    return _setKeepFloor(d, keep ? 1 : 0);
+  } finally {
+    calloc.free(d);
+  }
+}
+
+/// Whether the scan found a surface under the object.
+bool hasFloor(String projectDir) {
+  final d = projectDir.toNativeUtf8();
+  try {
+    return _hasFloor(d) == 1;
+  } finally {
+    calloc.free(d);
+  }
+}
+
+/// Flip-and-merge: combines the models of two scans into outDir/mesh.ply.
+/// Returns 0 on success.
+int mergeScans(String dirA, String dirB, String outDir) {
+  final a = dirA.toNativeUtf8(), b = dirB.toNativeUtf8(), o = outDir.toNativeUtf8();
+  try {
+    return _merge(a, b, o);
+  } finally {
+    calloc.free(a);
+    calloc.free(b);
+    calloc.free(o);
   }
 }
 

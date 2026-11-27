@@ -87,6 +87,22 @@ SF_API void  sf_job_free(sf_job* job);
  */
 SF_API int sf_remesh(const char* project_dir, float floor_mm, int smooth);
 
+/*
+ * Keeps (keep = 1) or removes (keep = 0) the surface the object stands on and
+ * rebuilds mesh.ply. The choice is also remembered for later rebuilds.
+ * Returns 0 on success, 5 if no surface was found under the object.
+ */
+SF_API int sf_set_keep_floor(const char* project_dir, int keep);
+/* Returns 1 if a surface was found under the object in this scan. */
+SF_API int sf_has_floor(const char* project_dir);
+
+/*
+ * Flip-and-merge: lines up the meshes of two scans of the same object (for
+ * example scanned standing, then flipped over to scan the bottom) and writes
+ * the combined closed mesh to out_dir/mesh.ply. Returns 0 on success.
+ */
+SF_API int sf_merge(const char* dir_a, const char* dir_b, const char* out_dir);
+
 /* ---- Meshes, viewer and export ---------------------------------------- */
 
 typedef struct sf_mesh sf_mesh;

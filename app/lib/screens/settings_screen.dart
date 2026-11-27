@@ -247,6 +247,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
         ),
+        _header('AUTO SCAN'),
+        Card(
+          child: SwitchListTile(
+            title: const Text('Remove the surface underneath'),
+            subtitle: const Text('Cuts away the table or floor the object stands on and closes the bottom, so only '
+                'the object is left. You can change it for each scan.'),
+            isThreeLine: true,
+            value: s.autoRemoveFloor,
+            activeColor: SfColors.accent,
+            onChanged: (v) {
+              s.autoRemoveFloor = v;
+              _save();
+            },
+          ),
+        ),
         _header('NEW SCANS'),
         Card(
           child: Padding(

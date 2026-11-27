@@ -348,7 +348,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
                   padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                   child: Row(children: [
                     Expanded(child: _ToolButton(icon: Icons.straighten_rounded, label: 'Size', onTap: _setSize)),
-                    Expanded(child: _ToolButton(icon: Icons.content_cut_rounded, label: 'Flat base', onTap: _cutFloor)),
+                    if (!p.merged)
+                      Expanded(child: _ToolButton(icon: Icons.content_cut_rounded, label: 'Flat base', onTap: _cutFloor)),
                     Expanded(
                       flex: 2,
                       child: FilledButton.icon(

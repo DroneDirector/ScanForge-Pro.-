@@ -252,6 +252,16 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
         p.log("fusion: using the scan box");
     }
 
+    // room below the floor for an optional slab of the surface underneath
+    double slabZ = -1e30;
+    if (floorZ > -1e29) {
+        const double thick = rec.metric ? std::clamp(0.03 * maxExt, 0.003, 0.012) : 0.03 * maxExt;
+        slabZ = floorZ - thick;
+        lo[2] = std::min(lo[2], slabZ - 0.02 * maxExt);
+        ext = hi - lo;
+        maxExt = std::max({ext[0], ext[1], ext[2]});
+    }
+
     const float voxel = float(maxExt / s.volumeRes);
     vol.nx = std::max(8, int(std::ceil(ext[0] / voxel)) + 1);
     vol.ny = std::max(8, int(std::ceil(ext[1] / voxel)) + 1);
@@ -263,7 +273,9 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
     vol.targetFaces = s.targetFaces;
     vol.metric = rec.metric;
     vol.smoothIters = s.smoothIters;
-    vol.floorZ = vol.autoFloorZ = float(floorZ > -1e29 ? floorZ + 2.0 * voxel : -1e30);
+    vol.floorCutZ = float(floorZ > -1e29 ? floorZ + 2.0 * voxel : -1e30);
+    vol.floorSlabZ = float(slabZ);
+    vol.floorZ = vol.autoFloorZ = (rec.keepFloor && slabZ > -1e29) ? vol.floorSlabZ : vol.floorCutZ;
     const size_t N = size_t(vol.nx) * vol.ny * vol.nz;
     vol.tsdf.assign(N, 1.f);
     vol.weight.assign(N, 0.f);
@@ -304,6 +316,7 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
             const cv::Mat& Cimg = pr.dm->color;
             const int W = D.cols, H = D.rows;
             const float tr = pr.trunc;
+            const float wt = pr.dm->weight;
             for (int y = 0; y < vol.ny; ++y) {
                 cv::Vec3d pm0(vol.origin[0], vol.origin[1] + y * double(voxel), vol.origin[2] + z * double(voxel));
                 cv::Vec3d q = pr.A * pm0 + pr.b;
@@ -319,8 +332,8 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
                         size_t id = base + x;
                         float& w = vol.weight[id];
                         float& t = vol.tsdf[id];
-                        t = (t * w + 1.f) / (w + 1.f);
-                        w = std::min(w + 1.f, 250.f);
+                        t = (t * w + wt) / (w + wt);
+                        w = std::min(w + wt, 250.f);
                         continue;
                     }
                     float d = D.at<float>(v, u);
@@ -331,8 +344,8 @@ void fuseDepthMaps(const Reconstruction& rec, const std::vector<DepthMap>& maps,
                     float val = std::min(1.f, sdf / tr);
                     float& w = vol.weight[id];
                     float& t = vol.tsdf[id];
-                    t = (t * w + val) / (w + 1.f);
-                    w = std::min(w + 1.f, 250.f);
+                    t = (t * w + val * wt) / (w + wt);
+                    w = std::min(w + wt, 250.f);
                     if (std::abs(sdf) < tr) {
                         uint16_t& cw = vol.colorW[id];
                         const cv::Vec3b& bgr = Cimg.at<cv::Vec3b>(v, u);

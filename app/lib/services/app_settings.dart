@@ -15,6 +15,8 @@ class AppSettings {
   bool useGps = false;
   /// Live Scan: let the AI guess the object's outline when tapping it.
   bool liveAiGuess = true;
+  /// Auto scan: remove the surface the object stands on (default for new scans).
+  bool autoRemoveFloor = true;
   String? skippedVersion;
   int defaultQuality = 1;
   String defaultPrinter = 'x1';
@@ -38,6 +40,7 @@ class AppSettings {
       autoCheckUpdates = j['autoCheckUpdates'] as bool? ?? true;
       useGps = j['useGps'] as bool? ?? false;
       liveAiGuess = j['liveAiGuess'] as bool? ?? true;
+      autoRemoveFloor = j['autoRemoveFloor'] as bool? ?? true;
       skippedVersion = j['skippedVersion'] as String?;
       defaultQuality = (j['defaultQuality'] as num?)?.toInt() ?? 1;
       defaultPrinter = j['defaultPrinter'] as String? ?? 'x1';
@@ -54,6 +57,7 @@ class AppSettings {
       'autoCheckUpdates': autoCheckUpdates,
       'useGps': useGps,
       'liveAiGuess': liveAiGuess,
+      'autoRemoveFloor': autoRemoveFloor,
       'skippedVersion': skippedVersion,
       'defaultQuality': defaultQuality,
       'defaultPrinter': defaultPrinter,
