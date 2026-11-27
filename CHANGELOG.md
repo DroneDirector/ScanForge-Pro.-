@@ -1,6 +1,6 @@
 # Changelog
 
-## Next batch (not released yet)
+## 1.3.0 (alpha), 2026-11-27
 - **Auto scan** (new first option in New scan): no points to collect and nothing to tap. Just move
   around the object; the phone's depth builds the shape live and sharp photos are taken
   automatically, with the phone's position and depth saved for each one.
@@ -17,7 +17,7 @@
 - **Flip & scan bottom**: turn the object over and scan again; both scans are lined up
   automatically and combined into one complete, closed model. Any two scans of the same object can
   also be combined ("Combine with another scan…").
-- 3D engine: uses the phone's depth together with the photos (so plain, shiny-free objects with
+- 3D engine: uses the phone's depth together with the photos (so plain objects with
   little texture still get their shape), keeps edges and corners sharp, and paints the colours
   from the photos.
 
