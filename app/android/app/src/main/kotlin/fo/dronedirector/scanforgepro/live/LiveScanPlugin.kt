@@ -75,7 +75,7 @@ class LiveScanPlugin(private val activity: Activity, engine: FlutterEngine) {
                     result.success(status)
                 }
                 "autoFloor" -> {
-                    autoSession?.setRemoveFloor(call.argument<Boolean>("remove") ?: true)
+                    autoSession?.updateRemoveFloor(call.argument<Boolean>("remove") ?: true)
                     result.success(null)
                 }
                 "autoRestart" -> { autoSession?.restart(); result.success(null) }

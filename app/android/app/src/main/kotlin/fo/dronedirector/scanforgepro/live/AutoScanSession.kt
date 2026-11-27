@@ -64,7 +64,7 @@ class AutoScanSession(private val context: Context, private val emit: (Map<Strin
     private val photoCount = AtomicInteger(0)
     private val savedCount = AtomicInteger(0)
 
-    @Volatile var removeFloor = true
+    @Volatile private var removeFloor = true
     @Volatile private var stopped = false
     @Volatile private var roiCenter: FloatArray? = null
     @Volatile private var roiRadius = 0.6f
@@ -138,7 +138,7 @@ class AutoScanSession(private val context: Context, private val emit: (Map<Strin
         }
     }
 
-    fun setRemoveFloor(on: Boolean) {
+    fun updateRemoveFloor(on: Boolean) {
         removeFloor = on
         writeOptions()
         lastExtract = 0L
